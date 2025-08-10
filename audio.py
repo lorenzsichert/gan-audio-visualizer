@@ -137,6 +137,6 @@ with stream:
         audio_weigth_knob.draw(screen)
 
         pygame.display.flip()
-        #clock.tick(60)
+        clock.tick(60)
 
 pygame.quit()
