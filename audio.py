@@ -15,7 +15,7 @@ from graph import Knob
 from recording import get_sample
 
 
-height, width = 250, 500
+height, width = 250, 250
 
 pygame.init()
 screen = pygame.display.set_mode((width, height))
@@ -24,7 +24,7 @@ clock = pygame.time.Clock()
 running = True
 
 rate = 44100
-blocksize = 500
+blocksize = 1000
 
 device = 'default'
 
@@ -38,13 +38,13 @@ stream = sd.InputStream(
 
 latent_dim= 100
 image_size = 64
-image_channels = 1
-model_path_grayscale = "gan/cifar100_dcgan_grayscale/weights/netG_epoch_299.pth"
-model_path = "eyes/andyG-epoch300.pth"
+image_channels = 3
+#model_path_grayscale = "models/netG_epoch_299.pth"
+model_path = "models/pixelart80.pth"
 
-#generator = ColorGenerator(image_size, latent_dim, image_channels)
-generator = GrayScaleGenerator(0)
-generator.load_state_dict(torch.load(model_path_grayscale, map_location=torch.device('cpu')))
+generator = ColorGenerator(image_size, latent_dim, image_channels)
+#generator = GrayScaleGenerator(0)
+generator.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
 generator.eval()
 
 smoothing_factor = 0.6
@@ -99,11 +99,12 @@ with stream:
 
         # Image Generation
         noise = torch.zeros(1, latent_dim)
-        for i in range(latent_dim):
+        for i in range(latent_dim): 
+            #noise[0][i] = a[0][i] * noise_weigth + (- 3/(spectrum[i]+1) + 3) * audio_weigth * b[0][i]
             noise[0][i] = a[0][i] * noise_weigth + spectrum[i] * audio_weigth * b[0][i]
 
 
-        noise = noise.view(1,100,1,1)
+        noise = noise.view(1,100)
         image = generator(noise).detach().squeeze()
         #fake_image = torch.zeros((3,32,32))
         image_array = image.numpy()
@@ -115,28 +116,25 @@ with stream:
         image_rgb = np.transpose(image_array, (1,2,0))
         surface = pygame.surfarray.make_surface(np.transpose(image_rgb, (1, 0, 2)))
         
-        windows = 2
+        windows = 1
 
         surface = pygame.transform.smoothscale(surface, (width / windows, height ))  # scale up for display
         
 
         screen.fill((255, 255, 255))
 
-        for i in range(windows):
-            #flipped_surface = pygame.transform.flip(surface, i % 2 == 0, False)
-            screen.blit(surface, ((width / windows) * i, (height / windows) * 0))
+        screen.blit(surface, ((width / windows) * 0, (height / windows) * 0))
 
         path = "/tmp/current.png"
         tmp_path = path + ".tmp"
         pygame.image.save(surface, tmp_path)
         os.replace(tmp_path, path)
-        draw_line(screen, smoothed_spectrum)
+        #draw_line(screen, smoothed_spectrum)
 
-        smoothing_factor_knob.draw(screen)
-        noise_weigth_knob.draw(screen)
-        audio_weigth_knob.draw(screen)
+        #smoothing_factor_knob.draw(screen)
+        #noise_weigth_knob.draw(screen)
+        #audio_weigth_knob.draw(screen)
 
         pygame.display.flip()
-        clock.tick(60)
 
 pygame.quit()
