@@ -1,0 +1,6 @@
+torch
+torchvision
+sounddevice
+pyaudio
+pyqt5
+scipy

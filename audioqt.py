@@ -1,22 +1,26 @@
-import sys
-import os
 import random
-import numpy as np
-import torch
-import sounddevice as sd
+import sys
+
+from PyQt5.QtCore import QSettings, QTimer, Qt
+from PyQt5.QtGui import QImage, QPainter, QPixmap, QTransform
 from PyQt5.QtWidgets import (
-    QApplication, QLabel, QWidget, QVBoxLayout, QMainWindow,
-    QAction, QDialog, QSlider, QFormLayout, QDialogButtonBox,
-    QSizePolicy, QLineEdit, QPushButton, QSpinBox, QFileDialog,
+    QAction,
+    QApplication,
+    QLabel,
+    QMainWindow,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt5.QtCore import QTimer, Qt
-from PyQt5.QtGui import QImage, QPixmap, QPainter
+import numpy as np
+import sounddevice as sd
+import torch
 
 from dcgan import ColorGenerator
-from recording import get_sample
-
-from options_dialog import OptionsDialog
 from models_dialog import ModelsDialog
+from options_dialog import OptionsDialog
+from input_dialog import InputDialog
+from recording import get_sample
 
 
 class GANVisualizer(QMainWindow):
@@ -24,8 +28,8 @@ class GANVisualizer(QMainWindow):
         super().__init__()
 
         self.setWindowTitle("Audio GAN Visualizer (Qt)")
-        self.width, self.height = 250, 250
-        self.resize(self.width, self.height)
+        self.label_width, self.label_height = 250, 250
+        self.resize(self.label_width, self.label_height)
 
         # --- Central Widget ---
         self.label = QLabel()
@@ -40,24 +44,31 @@ class GANVisualizer(QMainWindow):
         self.label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.label.setMinimumSize(50, 50) 
 
-        # --- Audio and Model Setup ---
-        self.rate = 44100
-        self.blocksize = 1000
-        self.device = 'default'
-        self.latent_dim = 100
-        self.image_size = 256
-        self.image_channels = 1
-        self.model_path = "models/256,256,1/andylomas100white.pth"
+        """ Load and Save Settings """
+        self.settings = QSettings("lorenzsichert", "GANVisualizer")
 
-        self.generator = ColorGenerator(self.image_size, self.latent_dim, self.image_channels)
-        self.generator.load_state_dict(torch.load(self.model_path, map_location=torch.device('cpu')))
-        self.generator.eval()
+        saved_device = self.settings.value("input_device", defaultValue=None)
+        if saved_device is not None:
+            print("Found saved device")
+            self.device = saved_device
+            print(self.device)
+        else:
+            self.device = None
+
+        # --- Audio and Model Setup ---
+        self.blocksize = 1000
+        self.latent_dim = 100
+        self.image_size = 64
+        self.image_channels = 3
+        self.model_path = "models/64,64,3/pixelart.pth"
+
+        self.reload_generator()
 
         # --- Tiling Settings ---
         self.tiling = 2
-        self.current_pixmap = QPixmap(self.width, self.height)
-        self.tile_pixmap = QPixmap(self.width // self.tiling,
-                                   self.height // self.tiling)
+        self.current_pixmap = QPixmap(self.label_width, self.label_height)
+        self.tile_pixmap = QPixmap(self.label_width // self.tiling,
+                                   self.label_height // self.tiling)
 
         # Parameters
         self.smoothing_factor = 0.6
@@ -72,14 +83,7 @@ class GANVisualizer(QMainWindow):
         self.step = 0
 
         # --- Start Audio Stream ---
-        self.stream = sd.InputStream(
-            samplerate=self.rate,
-            blocksize=self.blocksize,
-            channels=1,
-            dtype='float32',
-            device=self.device
-        )
-        self.stream.start()
+        self.open_stream()
 
         # --- Timer for updates ---
         self.timer = QTimer()
@@ -88,6 +92,38 @@ class GANVisualizer(QMainWindow):
 
         # --- Menu ---
         self.init_menu()
+
+    def open_stream(self):
+        print(f"Open Stream: {self.device}")
+        if self.device == None:
+            self.stream = None
+            return
+        
+        if self.device['max_input_channels'] < 1:
+            print(f"{self.device['name']} has no input channels.")
+            return
+
+        try:
+            self.stream = sd.InputStream(
+                samplerate=self.device['default_samplerate'],
+                blocksize=self.blocksize,
+                channels=self.device['max_input_channels'],
+                dtype='float32',
+                device=self.device['index']
+            )
+            self.stream.start()
+            print("Stream started succesfully!")
+        except sd.PortAudioError as e:
+            print(f"Failed to start Stream: {e}")
+            self.stream.stop()
+            self.stream.close()
+            self.stream = None
+        except Exception as e:
+            print(f"Failed to start Stream: {e}")
+            self.stream.stop()
+            self.stream.close()
+            self.stream = None
+
 
     def init_menu(self):
         menubar = self.menuBar()
@@ -101,6 +137,10 @@ class GANVisualizer(QMainWindow):
         load_action.triggered.connect(self.open_models_dialog)
         options_menu.addAction(load_action)
 
+        input_action = QAction("Input Settings", self)
+        input_action.triggered.connect(self.open_input_dialog)
+        options_menu.addAction(input_action)
+
     def open_options_dialog(self):
         dialog = OptionsDialog(self)
         dialog.exec_()
@@ -109,18 +149,25 @@ class GANVisualizer(QMainWindow):
         dialog = ModelsDialog(self)
         dialog.exec_()
 
+    def open_input_dialog(self):
+        dialog = InputDialog(self)
+        dialog.exec_()
+
     def update_frame(self):
         self.step += 1
-        self.smoothed_spectrum = get_sample(
-            self.stream, self.smoothed_spectrum, self.blocksize, self.smoothing_factor
-        )
+        if self.stream != None:
+            self.smoothed_spectrum = get_sample(
+                self.stream, self.smoothed_spectrum, self.blocksize, self.smoothing_factor
+            )
+        else:
+            self.smoothed_spectrum = np.zeros(int(self.blocksize / 2) + 1)
 
         if self.step % 10 == 0:
             c = random.randint(0, self.latent_dim - 1)
             d = random.randint(0, self.latent_dim - 1)
             self.lookup[d], self.lookup[c] = self.lookup[c], self.lookup[d]
 
-        if self.step % 20 == 0:
+        if self.step % 3 == 0:
             self.a[0][random.randint(0, self.latent_dim - 1)] = torch.randn(1)[0]
             self.b[0][random.randint(0, self.latent_dim - 1)] = torch.randn(1)[0]
 
@@ -148,16 +195,27 @@ class GANVisualizer(QMainWindow):
         )
 
         self.tile_pixmap = QPixmap.fromImage(qimage).scaled(
-            int(self.width / self.tiling)+1,
-            int(self.height / self.tiling)+1,
-            Qt.KeepAspectRatio, Qt.SmoothTransformation
+            int(self.label_width / self.tiling)+1,
+            int(self.label_height / self.tiling)+1,
+            Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
         )
 
         painter = QPainter(self.current_pixmap)
 
-        for x in range(0, self.width, int(self.width / self.tiling)+1):
-            for y in range(0, self.height, int(self.height / self.tiling)+1):
-                painter.drawPixmap(x, y, self.tile_pixmap)
+        i = 0
+        j = 0
+        for x in range(0, self.label_width, int(self.label_width / self.tiling)+1):
+            j += 1
+            for y in range(0, self.label_height, int(self.label_height / self.tiling)+1):
+                i += 1
+                x_flip = 1
+                y_flip = 1
+                if i%2 == 0:
+                    y_flip = -1
+                if j%2 == 0:
+                    x_flip = -1
+                flipped_pixmap = self.tile_pixmap.transformed(QTransform().scale(x_flip, y_flip))
+                painter.drawPixmap(x, y, flipped_pixmap)
         painter.end()
 
         self.update_scaled_pixmap()
@@ -179,6 +237,7 @@ class GANVisualizer(QMainWindow):
             self.generator = ColorGenerator(self.image_size, self.latent_dim, self.image_channels)
             state_dict = torch.load(self.model_path, map_location=torch.device('cpu'))
             self.generator.load_state_dict(state_dict)
+            #self.generator = torch.compile(self.generator)
             self.generator.eval()
             print(f"✅ Reloaded generator from {self.model_path}")
         except Exception as e:
@@ -197,8 +256,9 @@ class GANVisualizer(QMainWindow):
 
     def closeEvent(self, event):
         self.timer.stop()
-        self.stream.stop()
-        self.stream.close()
+        if self.stream != None:
+            self.stream.stop()
+            self.stream.close()
         event.accept()
 
 
