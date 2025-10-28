@@ -1,6 +1,6 @@
 # Audio GAN Visualizer (Qt)
 
-A real-time **audio-driven GAN visualizer** built with PyQt5 and PyTorch. This application generates dynamic images using a pre-trained GAN, influenced by live audio input or a simulated audio spectrum. Great for exploring generative visuals controlled by sound.  
+A real-time **audio-driven GAN visualizer** built with PyQt5 and PyTorch. This application generates dynamic images using a pre-trained GAN, influenced by live audio input. Great for exploring generative visuals controlled by sound.  
 
 ![Example Screenshot](path/to/screenshot1.png)  
 *Example of the GAN visualizer in action*  
@@ -12,7 +12,6 @@ A real-time **audio-driven GAN visualizer** built with PyQt5 and PyTorch. This a
 - Real-time audio input visualization.
 - GAN-based image generation using pre-trained models.
 - Adjustable latent vector dynamics and audio influence.
-- Tiled display with flipping effects
 - Model and input device switching
 
 ---
@@ -22,7 +21,7 @@ A real-time **audio-driven GAN visualizer** built with PyQt5 and PyTorch. This a
 1. **Clone the repository**
 
 ```bash
-git clone https://github.com/yourusername/audio-gan-visualizer.git
+git clone https://github.com/lorenzsichert/audio-gan-visualizer.git
 cd audio-gan-visualizer
 ```
 

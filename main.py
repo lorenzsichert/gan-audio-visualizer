@@ -16,7 +16,7 @@ import numpy as np
 import sounddevice as sd
 import torch
 
-from dcgan import ColorGenerator
+from dcgan import Generator
 from models_dialog import ModelsDialog
 from options_dialog import OptionsDialog
 from input_dialog import InputDialog
@@ -28,7 +28,7 @@ class GANVisualizer(QMainWindow):
         super().__init__()
 
         self.setWindowTitle("Audio GAN Visualizer (Qt)")
-        self.label_width, self.label_height = 250, 250
+        self.label_width, self.label_height = 500, 500
         self.resize(self.label_width, self.label_height)
 
         # --- Central Widget ---
@@ -49,31 +49,32 @@ class GANVisualizer(QMainWindow):
 
         saved_device = self.settings.value("input_device", defaultValue=None)
         if saved_device is not None:
-            print("Found saved device")
+            print("Found saved device.")
             self.device = saved_device
-            print(self.device)
         else:
             self.device = None
 
         # --- Audio and Model Setup ---
         self.blocksize = 1000
         self.latent_dim = 100
-        self.image_size = 64
+        self.image_size = 32
         self.image_channels = 3
-        self.model_path = "models/64,64,3/pixelart.pth"
+        self.model_path = "models/32,32,3/cifar_10_epoch_57.pth"
 
         self.reload_generator()
 
         # --- Tiling Settings ---
-        self.tiling = 2
+        self.tiling = 1
         self.current_pixmap = QPixmap(self.label_width, self.label_height)
         self.tile_pixmap = QPixmap(self.label_width // self.tiling,
                                    self.label_height // self.tiling)
 
         # Parameters
         self.smoothing_factor = 0.6
-        self.noise_weight = 0.3
-        self.audio_weight = 0.3
+        self.noise_weight = 0.4
+        self.audio_weight = 0.1
+        self.noise_randomization = 1
+        self.audio_randomization = 1
 
 
         self.smoothed_spectrum = np.zeros(int(self.blocksize / 2) + 1)
@@ -83,6 +84,7 @@ class GANVisualizer(QMainWindow):
         self.step = 0
 
         # --- Start Audio Stream ---
+        self.stream = None
         self.open_stream()
 
         # --- Timer for updates ---
@@ -94,13 +96,13 @@ class GANVisualizer(QMainWindow):
         self.init_menu()
 
     def open_stream(self):
-        print(f"Open Stream: {self.device}")
+        print(f"Opening Stream: {self.device}")
         if self.device == None:
             self.stream = None
             return
         
         if self.device['max_input_channels'] < 1:
-            print(f"{self.device['name']} has no input channels.")
+            print(f"❌ {self.device['name']} has no input channels.")
             return
 
         try:
@@ -109,17 +111,15 @@ class GANVisualizer(QMainWindow):
                 blocksize=self.blocksize,
                 channels=self.device['max_input_channels'],
                 dtype='float32',
-                device=self.device['index']
+                device=self.device['name']
             )
             self.stream.start()
-            print("Stream started succesfully!")
+            print("✅ Stream started succesfully!")
         except sd.PortAudioError as e:
-            print(f"Failed to start Stream: {e}")
-            self.stream.stop()
-            self.stream.close()
+            print(f"❌ Failed to start Stream: {e}")
             self.stream = None
         except Exception as e:
-            print(f"Failed to start Stream: {e}")
+            print(f"❌ Failed to start Stream: {e}")
             self.stream.stop()
             self.stream.close()
             self.stream = None
@@ -143,15 +143,18 @@ class GANVisualizer(QMainWindow):
 
     def open_options_dialog(self):
         dialog = OptionsDialog(self)
-        dialog.exec_()
+        dialog.setModal(False)
+        dialog.show()
 
     def open_models_dialog(self):
         dialog = ModelsDialog(self)
-        dialog.exec_()
+        dialog.setModal(False)
+        dialog.show()
 
     def open_input_dialog(self):
         dialog = InputDialog(self)
-        dialog.exec_()
+        dialog.setModal(False)
+        dialog.show()
 
     def update_frame(self):
         self.step += 1
@@ -162,12 +165,13 @@ class GANVisualizer(QMainWindow):
         else:
             self.smoothed_spectrum = np.zeros(int(self.blocksize / 2) + 1)
 
-        if self.step % 10 == 0:
+        # --- Randomize Latent Vector ---
+        if self.audio_randomization != 0 and self.step % int(30 / self.audio_randomization) == 0:
             c = random.randint(0, self.latent_dim - 1)
             d = random.randint(0, self.latent_dim - 1)
             self.lookup[d], self.lookup[c] = self.lookup[c], self.lookup[d]
 
-        if self.step % 3 == 0:
+        if self.noise_randomization != 0 and self.step % int(30 / self.noise_randomization) == 0:
             self.a[0][random.randint(0, self.latent_dim - 1)] = torch.randn(1)[0]
             self.b[0][random.randint(0, self.latent_dim - 1)] = torch.randn(1)[0]
 
@@ -179,6 +183,7 @@ class GANVisualizer(QMainWindow):
         for i in range(self.latent_dim):
             noise[0][i] = self.a[0][i] * self.noise_weight + spectrum[i] * self.audio_weight * self.b[0][i]
 
+        noise = noise.view(1,100,1,1)
         image = self.generator(noise).detach().squeeze()
         image_array = ((image.numpy() + 1) / 2.0 * 255).astype(np.uint8)
         if self.image_channels == 1:
@@ -234,12 +239,14 @@ class GANVisualizer(QMainWindow):
         """Recreate the generator and load weights."""
         try:
             # Recreate the generator (ensures architecture matches)
-            self.generator = ColorGenerator(self.image_size, self.latent_dim, self.image_channels)
-            state_dict = torch.load(self.model_path, map_location=torch.device('cpu'))
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            self.generator = Generator(self.image_size, self.latent_dim, feature_g=64, channels=self.image_channels)
+            state_dict = torch.load(self.model_path, map_location=device)
             self.generator.load_state_dict(state_dict)
             #self.generator = torch.compile(self.generator)
             self.generator.eval()
             print(f"✅ Reloaded generator from {self.model_path}")
+            print(f"✅ Running on {device}.")
         except Exception as e:
             print(f"❌ Failed to reload model: {e}")
 

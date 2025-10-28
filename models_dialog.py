@@ -4,6 +4,9 @@ from PyQt5.QtWidgets import (
     QLabel,
 )
 
+from pathlib import Path
+import re
+
 
 class ModelsDialog(QDialog):
     def __init__(self, parent):
@@ -55,6 +58,16 @@ class ModelsDialog(QDialog):
         )
         if path:
             self.model_path_edit.setText(path)
+            path = Path(path)
+            
+            # Look for a folder name containing something like 32,32,3
+            match = re.search(r'(\d+),(\d+),(\d+)', str(path))
+            if not match:
+                raise ValueError(f"No resolution pattern (H,W,C) found in path: {path}")
+            
+            height, width, channels = map(int, match.groups())
+            self.size_box.setValue(height)
+            self.channel_box.setValue(channels)
 
     def reload_generator(self):
         """Reload the generator in the main window with selected params."""

@@ -32,9 +32,21 @@ class OptionsDialog(QDialog):
         )
         layout.addRow("Smoothing Factor:", self.wrap_in_hbox(self.smoothing_slider, self.smoothing_spin))
 
+        # --- Audio Randomization Factor ---
+        self.audio_r_slider, self.audio_r_spin = self.create_slider_spin(
+            self.parent.audio_randomization, self.update_audio_r, 0.0, 30.0, 0.01
+        )
+        layout.addRow("Audio Randomization:", self.wrap_in_hbox(self.audio_r_slider, self.audio_r_spin))
+
+        # --- Noise Randomization Factor ---
+        self.noise_r_slider, self.noise_r_spin = self.create_slider_spin(
+            self.parent.noise_randomization, self.update_noise_r, 0.0, 30.0, 0.01
+        )
+        layout.addRow("Noise Randomization:", self.wrap_in_hbox(self.noise_r_slider, self.noise_r_spin))
+
         # --- Tiling ---
         self.h_slider, self.h_spinbox = self.create_slider_spin(
-            self.parent.tiling, self.update_tiling_from_spin, 1.0, 10.0
+            self.parent.tiling, self.update_tiling_from_spin, 1.0, 10.0, 1.0
         )
         layout.addRow("Tiling:", self.wrap_in_hbox(self.h_slider, self.h_spinbox))
 
@@ -58,8 +70,8 @@ class OptionsDialog(QDialog):
         spinbox.setSingleStep(step)
         spinbox.setValue(value)
 
-        slider.valueChanged.connect(lambda v: self.sync_slider_spin(slider, spinbox, v, factor, slot))
-        spinbox.valueChanged.connect(lambda v: self.sync_spin_slider(slider, spinbox, v, factor, slot))
+        slider.valueChanged.connect(lambda v: self.sync_slider_spin(spinbox, v, factor, slot))
+        spinbox.valueChanged.connect(lambda v: self.sync_spin_slider(slider, v, factor, slot))
 
         return slider, spinbox
 
@@ -71,13 +83,13 @@ class OptionsDialog(QDialog):
         return h_layout
 
     # Sync methods
-    def sync_slider_spin(self, slider, spinbox, value, factor, slot):
+    def sync_slider_spin(self, spinbox, value, factor, slot):
         spinbox.blockSignals(True)
         spinbox.setValue(value / factor)
         spinbox.blockSignals(False)
         slot(value / factor)
 
-    def sync_spin_slider(self, slider, spinbox, value, factor, slot):
+    def sync_spin_slider(self, slider, value, factor, slot):
         slider.blockSignals(True)
         slider.setValue(int(value * factor))
         slider.blockSignals(False)
@@ -95,3 +107,9 @@ class OptionsDialog(QDialog):
 
     def update_tiling_from_spin(self, value):
         self.parent.tiling = value
+
+    def update_audio_r(self, value):
+        self.parent.audio_randomization = value
+
+    def update_noise_r(self, value):
+        self.parent.noise_randomization = value

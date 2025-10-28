@@ -37,7 +37,7 @@ class InputDialog(QDialog):
     def load_devices(self):
         self.dropdown.clear()
         for i in sd.query_devices():
-            self.dropdown.addItem(i['name'], {"name": i['name'], "index": i['index'], "default_samplerate": i['default_samplerate'], "max_input_channels": i["max_input_channels"]})
+            self.dropdown.addItem(i['name'], {"name": i['name'], "index": i['index'], "default_samplerate": i['default_samplerate'], "max_input_channels": i['max_input_channels']})
 
 
     def input_changed(self):
@@ -45,7 +45,7 @@ class InputDialog(QDialog):
         self.update_text()
     
     def update_text(self):
-        self.label.setText(f"Selected Device: {self.selected_device["name"]}, Sample Rate: {self.selected_device["default_samplerate"]}")
+        self.label.setText(f"Selected Device: {self.selected_device['name']}, Sample Rate: {self.selected_device['default_samplerate']}")
 
     def apply(self):
         self.parent.device = self.dropdown.currentData()
