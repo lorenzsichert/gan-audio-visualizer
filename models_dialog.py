@@ -13,6 +13,7 @@ class ModelsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Load Models")
         self.parent = parent
+        self.path = ""
 
         layout = QFormLayout()
 

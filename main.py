@@ -57,9 +57,9 @@ class GANVisualizer(QMainWindow):
         # --- Audio and Model Setup ---
         self.blocksize = 1000
         self.latent_dim = 100
-        self.image_size = 32
+        self.image_size = 64
         self.image_channels = 3
-        self.model_path = "models/32,32,3/cifar_10_epoch_57.pth"
+        self.model_path = "models/64,64,3/generator-23.pth"
 
         self.reload_generator()
 
@@ -73,8 +73,8 @@ class GANVisualizer(QMainWindow):
         self.smoothing_factor = 0.6
         self.noise_weight = 0.4
         self.audio_weight = 0.1
-        self.noise_randomization = 1
-        self.audio_randomization = 1
+        self.noise_randomization = 4
+        self.audio_randomization = 2
 
 
         self.smoothed_spectrum = np.zeros(int(self.blocksize / 2) + 1)

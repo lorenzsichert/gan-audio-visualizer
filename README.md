@@ -51,6 +51,10 @@ pip install -r requirements.txt
 ```
 
 4. **Ensure you have audio input devices available** (microphone, line-in, etc.)
+## Usgae
+```
+python main.py
+```
 
 
 ## Example Screenshots
