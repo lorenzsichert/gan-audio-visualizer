@@ -3,7 +3,6 @@
 A real-time **audio-driven GAN visualizer** built with PyQt5 and PyTorch. This application generates dynamic images using a pre-trained GAN, influenced by live audio input. Great for exploring generative visuals controlled by sound.  
 
 ![Example Screenshot](gif/cifar10.gif)
-*Example of the GAN visualizer in action*  
 
 
 ## Features
