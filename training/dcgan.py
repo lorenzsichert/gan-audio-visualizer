@@ -28,9 +28,9 @@ alpha_dropdown = 0.25
 
 
 # --- Dataset Loading ---
-link = "mrm8488/ImageNet1K-val"
+link = "uoft-cs/cifar10"
 split = "train"
-image_tag = "image"
+image_tag = "img"
 
 
 class DatasetTransform(Dataset):
@@ -49,7 +49,6 @@ class DatasetTransform(Dataset):
 
 transform = transforms.Compose([
     transforms.Resize((img_size, img_size)),
-    transforms.Lambda(lambda x: x.convert("RGB")),
     transforms.ToTensor(),
     transforms.Normalize([0.5],[0.5])
 ])
@@ -82,6 +81,13 @@ class Generator(nn.Module):
             nn.InstanceNorm2d(self.init_size * features // 1),
             nn.ReLU(inplace=True)
         )
+        for i in range(1,layer):
+            self.network.extend(nn.Sequential(
+                nn.ConvTranspose2d(self.init_size * features // pow(2, i-1), self.init_size * features // pow(2, i), kernel_size=4, stride=1, padding=0),
+                nn.InstanceNorm2d(self.init_size * features // pow(2, i)),
+                nn.ReLU(inplace=True)
+            ))
+
 
         self.normal_res_head = nn.Sequential(
             nn.ConvTranspose2d(self.init_size * features // pow(2, layer-1), 3, kernel_size=4, stride=2, padding=1)
@@ -141,6 +147,12 @@ class Discriminator(nn.Module):
             nn.utils.spectral_norm(nn.Conv2d(self.init_size * features // pow(2, self.layer-1), 1, kernel_size=4, stride=1, padding=0)),
             nn.LeakyReLU(0.2, True),
         )
+
+        for i in range(1,layer):
+            self.network.extend(nn.Sequential(
+                nn.utils.spectral_norm(nn.Conv2d(self.init_size * features // pow(2, i), self.init_size * features // pow(2, i-1), kernel_size=4, stride=1, padding=0)),
+                nn.LeakyReLU(0.2, True),
+            ))
 
         self.head_normal = nn.Sequential(
             nn.utils.spectral_norm(nn.Conv2d(3, self.init_size * features // pow(2, self.layer-1), kernel_size=4, stride=2, padding=1)),
@@ -207,8 +219,6 @@ optimizerD = optim.Adam(discriminator.parameters(), lr=0.001, betas=[0.0, 0.9])
 
 alpha = 1.0
 counting_alpha = 0.0
-
-
 
 
 

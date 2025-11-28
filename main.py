@@ -47,6 +47,7 @@ class GANVisualizer(QMainWindow):
         """ Load and Save Settings """
         self.settings = QSettings("lorenzsichert", "GANVisualizer")
 
+
         saved_device = self.settings.value("input_device", defaultValue=None)
         if saved_device is not None:
             print("Found saved device.")
@@ -59,7 +60,7 @@ class GANVisualizer(QMainWindow):
         self.latent_dim = 100
         self.image_size = 64
         self.image_channels = 3
-        self.model_path = "models/64,64,3/generator-23.pth"
+        self.model_path = "models/64,64,3/generator-38.pth"
 
         self.reload_generator()
 
