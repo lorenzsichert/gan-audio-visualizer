@@ -1,70 +1,131 @@
 import torch.nn as nn
-import numpy as np
+from numpy import log2
 
 class Generator(nn.Module):
-    def __init__(self, img_size, latent_dim, feature_g=64, channels=3):
+    def __init__(self, init_size, latent_dim, img_size, features, channels, layer):
         super(Generator, self).__init__()
+        self.init_size = init_size
+        self.features = features
+        self.channels = channels
+        self.layer = layer
 
-        self.init_size = 8
-        self.num_upsamples = int( np.log2(img_size // self.init_size ))
-
-        in_ch = feature_g * 2 ** self.num_upsamples
-
-        layers = []
-
-        def convolutional_block(in_sample, out_sample, stride, padding):
-            return [
-                nn.ConvTranspose2d(in_sample, out_sample, kernel_size=4, stride=stride, padding=padding),
-                nn.InstanceNorm2d(out_sample),
-                nn.ReLU(True),
-            ]
-
-        layers += convolutional_block(latent_dim, in_ch, stride=1, padding=0)
-
-        for _ in range(self.num_upsamples):
-            out_ch = in_ch // 2 if in_ch > feature_g else feature_g
-            layers += convolutional_block(in_ch, out_ch, stride=2, padding=1)
-            in_ch = out_ch
+        self.upscales = log2(img_size/self.init_size)
+        
+        print(self.upscales)
 
 
-        layers += [
-            nn.ConvTranspose2d(in_ch, channels, kernel_size=4, stride=2, padding=1),
-            nn.Tanh()
-        ]
-        self.net = nn.Sequential(*layers)
+        self.network = nn.Sequential(
+            nn.ConvTranspose2d(latent_dim, self.init_size * features, kernel_size=4, stride=1, padding=0),
+            nn.InstanceNorm2d(self.init_size * features // 1),
+            nn.ReLU(inplace=True)
+        )
 
-        print(self.net)
 
-    def forward(self, z):
-        img = self.net(z)
-        return img
+        self.normal_res_head = nn.Sequential(
+            nn.ConvTranspose2d(self.init_size * features // pow(2, 0), 3, kernel_size=4, stride=2, padding=1)
+        )
 
+        self.high_res_block = nn.Sequential(
+            nn.ConvTranspose2d(self.init_size * features // pow(2, 0), self.init_size * features // pow(2, 1), kernel_size=4, stride=2, padding=1),
+            nn.InstanceNorm2d(self.init_size * features // pow(2, 1)),
+            nn.ReLU(inplace=True)
+        )
+
+        self.high_res_head = nn.Sequential(
+            nn.ConvTranspose2d(self.init_size * features // pow(2, 1), 3, kernel_size=4, stride=2, padding=1)
+        )
+
+        for i in range(2,layer+1):
+            self.add_layer(i)
+
+        print(self.network)
+
+    def forward(self, input, alpha):
+        out = self.network(input)
+        image_normal = self.normal_res_head(out)
+        out_high = self.high_res_block(out)
+        image_high = self.high_res_head(out_high)
+
+        image_normal_high = nn.functional.interpolate(image_normal, size=image_high.size()[-2:],mode="bilinear", align_corners=False)
+        image = (1-alpha) * image_normal_high + alpha * image_high
+
+        return image
+
+    def add_layer(self, layer):
+        self.layer = layer
+        self.network.extend(self.high_res_block)
+        self.normal_res_head = self.high_res_head
+        self.high_res_block = nn.Sequential(
+            nn.ConvTranspose2d(self.init_size * self.features // pow(2, self.layer-1), self.init_size * self.features // pow(2, self.layer), kernel_size=4, stride=2, padding=1),
+            nn.InstanceNorm2d(self.init_size * self.features // pow(2, self.layer)),
+            nn.ReLU(inplace=True)
+        )
+        self.high_res_head = nn.Sequential(
+            nn.ConvTranspose2d(self.init_size * self.features // pow(2, self.layer), 3, kernel_size=4, stride=2, padding=1)
+        )
+        print(self.network)
+
+    def export_generative(self):
+        final = self.network
+        final.extend(self.high_res_block)
+        final.extend(self.high_res_head)
+
+        return final
 
 class Discriminator(nn.Module):
-    def __init__(self, img_size, feature_d=64, channels=3):
+    def __init__(self, init_size, img_size, features, channels, layer):
         super(Discriminator, self).__init__()
+        self.init_size = init_size
+        self.features = features
+        self.channels = channels
+        self.layer = layer
 
-        def discriminator_block(in_filters, out_filters):
-            layers = [nn.Conv2d(in_filters, out_filters, 4, 2, 1, bias=False)]
-            layers.append(nn.LeakyReLU(0.2, inplace=True))
-            return layers
+        self.downscales = log2(img_size/self.init_size)
 
-        layers = []
+        print(self.downscales)
 
-        in_ch = channels
-        out_ch = feature_d
 
-        num_upsamples = int(np.log2(img_size // 8)) + 1
+        self.network = nn.Sequential(
+            nn.utils.spectral_norm(nn.Conv2d(self.init_size * self.features // pow(2, 0), 1, kernel_size=4, stride=1, padding=0)),
+            nn.LeakyReLU(0.2, True),
+        )
 
-        for _ in range(num_upsamples):
-            layers += discriminator_block(in_ch, out_ch)
-            in_ch = out_ch
-            out_ch = min(out_ch * 2, feature_d * 16)
+        self.head_normal = nn.Sequential(
+            nn.utils.spectral_norm(nn.Conv2d(3, self.init_size * self.features // pow(2, 0), kernel_size=4, stride=2, padding=1)),
+            nn.LeakyReLU(0.2, True),
+        )
 
-        layers.append(nn.Conv2d(in_ch, 1, 4, 1, 0))
+        self.head_high = nn.Sequential(
+            nn.utils.spectral_norm(nn.Conv2d(3, self.init_size * self.features // pow(2, 1), kernel_size=4, stride=2, padding=1)),
+            nn.LeakyReLU(0.2, True)
+        )
+        self.body_high = nn.Sequential(
+            nn.utils.spectral_norm(nn.Conv2d(self.init_size * self.features // pow(2, 1), self.init_size * self.features // pow(2, 0), kernel_size=4, stride=2, padding=1)),
+            nn.LeakyReLU(0.2, True),
+        )
+        for i in range(2,layer+1):
+            self.add_layer(i)
 
-        self.net = nn.Sequential(*layers)
-        print(self.net)
+        print(self.network)
+    
+    def forward(self, input_normal, input_high, alpha):
+        pass_high = self.body_high(self.head_high(input_high)) # Downscale once
+        pass_normal = self.head_normal(input_normal)
+        input = (1 - alpha) * pass_normal + alpha * pass_high
 
-    def forward(self, img):
-        return self.net(img)
+        return self.network(input)
+
+    def add_layer(self, layer):
+        self.layer = layer
+        self.network.insert(0, self.body_high)
+        self.head_normal = self.head_high
+
+        self.head_high = nn.Sequential(
+            nn.utils.spectral_norm(nn.Conv2d(3, self.init_size * self.features // pow(2, self.layer), kernel_size=4, stride=2, padding=1)),
+            nn.LeakyReLU(0.2, True)
+        )
+        self.body_high = nn.Sequential(
+            nn.utils.spectral_norm(nn.Conv2d(self.init_size * self.features // pow(2, self.layer), self.init_size * self.features // pow(2, self.layer-1), kernel_size=4, stride=2, padding=1)),
+            nn.LeakyReLU(0.2, True),
+        )
+        print(self.network)

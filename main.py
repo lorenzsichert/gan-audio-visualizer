@@ -16,7 +16,7 @@ import numpy as np
 import sounddevice as sd
 import torch
 
-from dcgan import Generator
+from training.models import Generator
 from models_dialog import ModelsDialog
 from options_dialog import OptionsDialog
 from input_dialog import InputDialog
@@ -58,9 +58,10 @@ class GANVisualizer(QMainWindow):
         # --- Audio and Model Setup ---
         self.blocksize = 1000
         self.latent_dim = 100
-        self.image_size = 64
+        self.image_size = 128
+        self.layer = 5
         self.image_channels = 3
-        self.model_path = "models/64,64,3/generator-38.pth"
+        self.model_path = "training/G-5.pth"
 
         self.reload_generator()
 
@@ -172,9 +173,17 @@ class GANVisualizer(QMainWindow):
             d = random.randint(0, self.latent_dim - 1)
             self.lookup[d], self.lookup[c] = self.lookup[c], self.lookup[d]
 
-        if self.noise_randomization != 0 and self.step % int(30 / self.noise_randomization) == 0:
-            self.a[0][random.randint(0, self.latent_dim - 1)] = torch.randn(1)[0]
-            self.b[0][random.randint(0, self.latent_dim - 1)] = torch.randn(1)[0]
+        #if self.noise_randomization != 0 and self.step % int(30 / self.noise_randomization) == 0:
+            #self.a[0][random.randint(0, self.latent_dim - 1)] = torch.randn(1)[0]
+            ##self.b[0][random.randint(0, self.latent_dim - 1)] = torch.randn(1)[0]
+
+
+        alpha = np.clip(self.noise_randomization/2000,0,1)
+        new = torch.randn(self.latent_dim)
+        self.a = (1- alpha) * self.a + alpha * new
+        self.b = (1- alpha) * self.a + alpha * new
+
+
 
         spectrum = np.zeros(self.latent_dim)
         for i in range(self.latent_dim):
@@ -185,8 +194,9 @@ class GANVisualizer(QMainWindow):
             noise[0][i] = self.a[0][i] * self.noise_weight + spectrum[i] * self.audio_weight * self.b[0][i]
 
         noise = noise.view(1,100,1,1)
-        image = self.generator(noise).detach().squeeze()
-        image_array = ((image.numpy() + 1) / 2.0 * 255).astype(np.uint8)
+        image = self.generator(noise, 0.25).detach().squeeze()
+        image = np.clip(image.numpy(), -1, 1)
+        image_array = ((image + 1) / 2.0 * 255).astype(np.uint8)
         if self.image_channels == 1:
             image_array = np.stack([image_array] * 3, axis=0)
         image_rgb = np.transpose(image_array, (1, 2, 0))
@@ -241,7 +251,7 @@ class GANVisualizer(QMainWindow):
         try:
             # Recreate the generator (ensures architecture matches)
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-            self.generator = Generator(self.image_size, self.latent_dim, feature_g=64, channels=self.image_channels)
+            self.generator = Generator(latent_dim=self.latent_dim, init_size=4, img_size=self.image_size, features=64, channels=self.image_channels, layer=self.layer)
             state_dict = torch.load(self.model_path, map_location=device)
             self.generator.load_state_dict(state_dict)
             #self.generator = torch.compile(self.generator)

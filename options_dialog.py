@@ -40,7 +40,7 @@ class OptionsDialog(QDialog):
 
         # --- Noise Randomization Factor ---
         self.noise_r_slider, self.noise_r_spin = self.create_slider_spin(
-            self.parent.noise_randomization, self.update_noise_r, 0.0, 30.0, 0.01
+            self.parent.noise_randomization, self.update_noise_r, 0.0, 100.0, 0.1
         )
         layout.addRow("Noise Randomization:", self.wrap_in_hbox(self.noise_r_slider, self.noise_r_spin))
 
