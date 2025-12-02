@@ -56,7 +56,7 @@ class GANVisualizer(QMainWindow):
             self.device = None
 
         # --- Audio and Model Setup ---
-        self.blocksize = 1000
+        self.blocksize = 2000
         self.latent_dim = 100
         self.image_size = 128
         self.layer = 5
@@ -75,7 +75,7 @@ class GANVisualizer(QMainWindow):
         self.smoothing_factor = 0.6
         self.noise_weight = 0.4
         self.audio_weight = 0.1
-        self.noise_randomization = 4
+        self.noise_randomization = 1
         self.audio_randomization = 2
 
 
@@ -194,7 +194,7 @@ class GANVisualizer(QMainWindow):
             noise[0][i] = self.a[0][i] * self.noise_weight + spectrum[i] * self.audio_weight * self.b[0][i]
 
         noise = noise.view(1,100,1,1)
-        image = self.generator(noise, 0.25).detach().squeeze()
+        image = self.generator(noise, 0.3).detach().squeeze()
         image = np.clip(image.numpy(), -1, 1)
         image_array = ((image + 1) / 2.0 * 255).astype(np.uint8)
         if self.image_channels == 1:

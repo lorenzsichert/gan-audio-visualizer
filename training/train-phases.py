@@ -1,3 +1,4 @@
+import os
 from torch import mean, optim, torch
 import torch.nn as nn
 from torch.utils.data import Dataset, dataset
@@ -9,7 +10,9 @@ from torchvision.utils import save_image
 from models import Generator
 from models import Discriminator
 
-
+# Use as many threads as possible
+torch.set_num_threads(20)
+torch.set_num_interop_threads(20)
 
 n_epochs = 2000
 b1 = 0.5
@@ -25,7 +28,7 @@ dataset_size = -1
 sample_interval = 64
 
 
-alpha_end = 1.2
+alpha_end = 1.8
 alpha_incease = 0.00001
 alpha_dropdown = 0.70
 
@@ -50,9 +53,13 @@ class DatasetTransform(Dataset):
             item = self.transform(item)
         return item
 
+def convert_to_rgb(x):
+    return x.convert("RGB")
+
+
 transform = transforms.Compose([
     transforms.Resize((img_size, img_size)),
-    transforms.Lambda(lambda x: x.convert("RGB")),
+    transforms.Lambda(convert_to_rgb),
     transforms.ToTensor(),
     transforms.Normalize([0.5],[0.5])
 ])
@@ -80,7 +87,7 @@ def seperate_image(image, layer, alpha):
     image_blend_normal = nn.functional.interpolate(image_blend_high, size=(pow(2, layer+2), pow(2,layer+2)), mode="bilinear")
     return image_blend_normal, image_blend_high
 
-layer = 4
+layer = 1
 
 generator = Generator(init_size, latent_dim, img_size, features, channels, layer)
 discriminator = Discriminator(init_size, img_size, features, channels, layer)
@@ -101,7 +108,7 @@ optimizerD = optim.Adam(discriminator.parameters(), lr=0.001, betas=[0.0, 0.9])
 
 
 alpha = 1.0
-counting_alpha = 0.0
+counting_alpha = 0.00
 
 
 for ep in range(n_epochs):
@@ -166,7 +173,4 @@ for ep in range(n_epochs):
             print(f"Ep: {ep}, i: {i}/{len(dataloader)}, alpha: {alpha:.3f}, D(r): {mean(output_real):.3f}, D(f): {mean(output_fake):.3f}, D Loss: {(loss_real + loss_fake)/2:.3f}, G Loss:  {loss_generated:.3f}")
         if i % sample_interval == 0:
             save_image(output, f"image-{ep}.png", normalize=True)
-        if i % (sample_interval * 4) == 0:
-            save_image(output, f"image-{ep}.png", normalize=True)
-            torch.save(generator.state_dict(), f"G-{layer}.pth")
 
