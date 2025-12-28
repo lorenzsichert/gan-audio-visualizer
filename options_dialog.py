@@ -2,8 +2,11 @@ from PyQt5.QtWidgets import (
     QDialog, QSlider, QFormLayout, QDialogButtonBox,
     QHBoxLayout, QDoubleSpinBox
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QTimer, Qt
 
+import pyqtgraph as pg
+import numpy as np
+import midi
 
 class OptionsDialog(QDialog):
     def __init__(self, parent):
@@ -14,41 +17,24 @@ class OptionsDialog(QDialog):
 
         layout = QFormLayout()
 
-        # --- Audio Weight ---
-        self.audio_slider, self.audio_spin = self.create_slider_spin(
-            self.parent.audio_weight, self.update_audio, 0.0, 1.0, 0.01
-        )
-        layout.addRow("Audio Weight:", self.wrap_in_hbox(self.audio_slider, self.audio_spin))
+        self.controls = {}
 
-        # --- Noise Weight ---
-        self.noise_slider, self.noise_spin = self.create_slider_spin(
-            self.parent.noise_weight, self.update_noise, 0.0, 1.0, 0.01
-        )
-        layout.addRow("Noise Weight:", self.wrap_in_hbox(self.noise_slider, self.noise_spin))
+        for i in midi.settings:
+            self.slider, self.spin = self.create_slider_spin(
+                i, midi.settings[i][0], self.update_settings(midi.settings, i), 0.0, midi.settings[i][2], 0.01
+            )
+            layout.addRow(i, self.wrap_in_hbox(self.slider, self.spin))
 
-        # --- Smoothing Factor ---
-        self.smoothing_slider, self.smoothing_spin = self.create_slider_spin(
-            self.parent.smoothing_factor, self.update_smoothing, 0.0, 1.0, 0.01
-        )
-        layout.addRow("Smoothing Factor:", self.wrap_in_hbox(self.smoothing_slider, self.smoothing_spin))
 
-        # --- Audio Randomization Factor ---
-        self.audio_r_slider, self.audio_r_spin = self.create_slider_spin(
-            self.parent.audio_randomization, self.update_audio_r, 0.0, 30.0, 0.01
-        )
-        layout.addRow("Audio Randomization:", self.wrap_in_hbox(self.audio_r_slider, self.audio_r_spin))
+        # --- Spectrum ---
+        self.plotWidget = pg.PlotWidget()
+        self.plotWidget.setYRange(0, 10)
+        layout.addRow(self.plotWidget)
 
-        # --- Noise Randomization Factor ---
-        self.noise_r_slider, self.noise_r_spin = self.create_slider_spin(
-            self.parent.noise_randomization, self.update_noise_r, 0.0, 100.0, 0.1
-        )
-        layout.addRow("Noise Randomization:", self.wrap_in_hbox(self.noise_r_slider, self.noise_r_spin))
 
-        # --- Tiling ---
-        self.h_slider, self.h_spinbox = self.create_slider_spin(
-            self.parent.tiling, self.update_tiling_from_spin, 1.0, 10.0, 1.0
-        )
-        layout.addRow("Tiling:", self.wrap_in_hbox(self.h_slider, self.h_spinbox))
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_spectrum)
+        self.timer.start(20)
 
         # --- Close button ---
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
@@ -57,8 +43,21 @@ class OptionsDialog(QDialog):
 
         self.setLayout(layout)
 
+    def update_spectrum(self):
+        x = np.arange(0, len(self.parent.smoothed_spectrum))
+        self.plotWidget.clear()
+        self.plotWidget.plot(x, np.log(self.parent.smoothed_spectrum + 1))
+
+        if midi.settings_updated["update"]:
+            for i in midi.settings:
+                self.controls[i]["spinbox"].setValue(midi.settings[i][0])
+            midi.settings_updated["update"] = False
+            print("Yes")
+
+
+
     # Helper to create slider and spinbox pair
-    def create_slider_spin(self, value, slot, min_val, max_val, step=0.1):
+    def create_slider_spin(self, name, value, slot, min_val, max_val, step=0.1):
         factor = int(1 / step)  # maps step to integer slider values
         slider = QSlider(Qt.Horizontal)
         slider.setMinimum(int(min_val * factor))
@@ -72,6 +71,11 @@ class OptionsDialog(QDialog):
 
         slider.valueChanged.connect(lambda v: self.sync_slider_spin(spinbox, v, factor, slot))
         spinbox.valueChanged.connect(lambda v: self.sync_spin_slider(slider, v, factor, slot))
+
+        self.controls[name] = {
+            "slider": slider,
+            "spinbox": spinbox,
+        }
 
         return slider, spinbox
 
@@ -95,21 +99,12 @@ class OptionsDialog(QDialog):
         slider.blockSignals(False)
         slot(value)
 
-    # Update methods
-    def update_audio(self, value):
-        self.parent.audio_weight = value
-
-    def update_noise(self, value):
-        self.parent.noise_weight = value
-
-    def update_smoothing(self, value):
-        self.parent.smoothing_factor = value
 
     def update_tiling_from_spin(self, value):
         self.parent.tiling = value
 
-    def update_audio_r(self, value):
-        self.parent.audio_randomization = value
 
-    def update_noise_r(self, value):
-        self.parent.noise_randomization = value
+    def update_settings(self, settings, name):
+        def update(value):
+            settings[name][0] = value
+        return update

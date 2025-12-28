@@ -4,3 +4,7 @@ sounddevice
 pyaudio
 pyqt5
 scipy
+pytorch_pretrained_biggan
+onnx
+onnxscript
+onnxruntime

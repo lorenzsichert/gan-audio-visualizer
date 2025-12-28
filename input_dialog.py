@@ -35,6 +35,9 @@ class InputDialog(QDialog):
         self.setLayout(layout)
 
     def load_devices(self):
+        sd._terminate()
+        sd._initialize()
+        self.parent.open_stream()
         self.dropdown.clear()
         for i in sd.query_devices():
             self.dropdown.addItem(i['name'], {"name": i['name'], "index": i['index'], "default_samplerate": i['default_samplerate'], "max_input_channels": i['max_input_channels']})
