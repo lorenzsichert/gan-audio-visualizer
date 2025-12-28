@@ -11,34 +11,32 @@ class Generator(nn.Module):
 
         self.upscales = log2(img_size/self.init_size)
         
-        print(self.upscales)
 
 
         self.network = nn.Sequential(
             nn.ConvTranspose2d(latent_dim, self.init_size * features, kernel_size=4, stride=1, padding=0),
-            nn.InstanceNorm2d(self.init_size * features // 1),
+            nn.BatchNorm2d(self.init_size * features // 1),
             nn.ReLU(inplace=True)
         )
 
 
         self.normal_res_head = nn.Sequential(
-            nn.ConvTranspose2d(self.init_size * features // pow(2, 0), 3, kernel_size=4, stride=2, padding=1)
+            nn.ConvTranspose2d(self.init_size * features // pow(2, 0), self.channels, kernel_size=4, stride=2, padding=1)
         )
 
         self.high_res_block = nn.Sequential(
             nn.ConvTranspose2d(self.init_size * features // pow(2, 0), self.init_size * features // pow(2, 1), kernel_size=4, stride=2, padding=1),
-            nn.InstanceNorm2d(self.init_size * features // pow(2, 1)),
+            nn.BatchNorm2d(self.init_size * features // pow(2, 1)),
             nn.ReLU(inplace=True)
         )
 
         self.high_res_head = nn.Sequential(
-            nn.ConvTranspose2d(self.init_size * features // pow(2, 1), 3, kernel_size=4, stride=2, padding=1)
+            nn.ConvTranspose2d(self.init_size * features // pow(2, 1), self.channels, kernel_size=4, stride=2, padding=1)
         )
 
         for i in range(2,layer+1):
             self.add_layer(i)
 
-        print(self.network)
 
     def forward(self, input, alpha):
         out = self.network(input)
@@ -57,13 +55,12 @@ class Generator(nn.Module):
         self.normal_res_head = self.high_res_head
         self.high_res_block = nn.Sequential(
             nn.ConvTranspose2d(self.init_size * self.features // pow(2, self.layer-1), self.init_size * self.features // pow(2, self.layer), kernel_size=4, stride=2, padding=1),
-            nn.InstanceNorm2d(self.init_size * self.features // pow(2, self.layer)),
+            nn.BatchNorm2d(self.init_size * self.features // pow(2, self.layer)),
             nn.ReLU(inplace=True)
         )
         self.high_res_head = nn.Sequential(
-            nn.ConvTranspose2d(self.init_size * self.features // pow(2, self.layer), 3, kernel_size=4, stride=2, padding=1)
+            nn.ConvTranspose2d(self.init_size * self.features // pow(2, self.layer), self.channels, kernel_size=4, stride=2, padding=1)
         )
-        print(self.network)
 
     def export_generative(self):
         final = self.network
@@ -82,7 +79,6 @@ class Discriminator(nn.Module):
 
         self.downscales = log2(img_size/self.init_size)
 
-        print(self.downscales)
 
 
         self.network = nn.Sequential(
@@ -91,12 +87,12 @@ class Discriminator(nn.Module):
         )
 
         self.head_normal = nn.Sequential(
-            nn.utils.spectral_norm(nn.Conv2d(3, self.init_size * self.features // pow(2, 0), kernel_size=4, stride=2, padding=1)),
+            nn.utils.spectral_norm(nn.Conv2d(self.channels, self.init_size * self.features // pow(2, 0), kernel_size=4, stride=2, padding=1)),
             nn.LeakyReLU(0.2, True),
         )
 
         self.head_high = nn.Sequential(
-            nn.utils.spectral_norm(nn.Conv2d(3, self.init_size * self.features // pow(2, 1), kernel_size=4, stride=2, padding=1)),
+            nn.utils.spectral_norm(nn.Conv2d(self.channels, self.init_size * self.features // pow(2, 1), kernel_size=4, stride=2, padding=1)),
             nn.LeakyReLU(0.2, True)
         )
         self.body_high = nn.Sequential(
@@ -106,7 +102,6 @@ class Discriminator(nn.Module):
         for i in range(2,layer+1):
             self.add_layer(i)
 
-        print(self.network)
     
     def forward(self, input_normal, input_high, alpha):
         pass_high = self.body_high(self.head_high(input_high)) # Downscale once
@@ -121,11 +116,10 @@ class Discriminator(nn.Module):
         self.head_normal = self.head_high
 
         self.head_high = nn.Sequential(
-            nn.utils.spectral_norm(nn.Conv2d(3, self.init_size * self.features // pow(2, self.layer), kernel_size=4, stride=2, padding=1)),
+            nn.utils.spectral_norm(nn.Conv2d(self.channels, self.init_size * self.features // pow(2, self.layer), kernel_size=4, stride=2, padding=1)),
             nn.LeakyReLU(0.2, True)
         )
         self.body_high = nn.Sequential(
             nn.utils.spectral_norm(nn.Conv2d(self.init_size * self.features // pow(2, self.layer), self.init_size * self.features // pow(2, self.layer-1), kernel_size=4, stride=2, padding=1)),
             nn.LeakyReLU(0.2, True),
         )
-        print(self.network)

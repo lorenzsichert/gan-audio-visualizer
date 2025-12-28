@@ -1,4 +1,3 @@
-import os
 from torch import mean, optim, torch
 import torch.nn as nn
 from torch.utils.data import Dataset, dataset
@@ -17,24 +16,25 @@ torch.set_num_interop_threads(20)
 n_epochs = 2000
 b1 = 0.5
 b2 = 0.99
-latent_dim = 100
+latent_dim = 256
 features = 64
 init_size = 4
 img_size = 512
 layer = 1
-channels = 3
-batch_size = 16
+channels = 1
+batch_size = 32
 dataset_size = -1
 sample_interval = 64
 
 
-alpha_end = 1.8
-alpha_incease = 0.00001
-alpha_dropdown = 0.70
+alpha_end = 2.0
+alpha_incease = 0.0001
+alpha_dropdown = 1.0
+counting_alpha = 0.0
 
 
 # --- Dataset Loading ---
-link = "mertcobanov/nature-dataset"
+link = "iamkaikai/amazing_logos_v2"
 split = "train"
 image_tag = "image"
 
@@ -60,6 +60,7 @@ def convert_to_rgb(x):
 transform = transforms.Compose([
     transforms.Resize((img_size, img_size)),
     transforms.Lambda(convert_to_rgb),
+    transforms.Grayscale(),
     transforms.ToTensor(),
     transforms.Normalize([0.5],[0.5])
 ])
@@ -67,7 +68,7 @@ transform = transforms.Compose([
 ds = load_dataset(link)
 train = ds[split]
 dataset = DatasetTransform(train, transform)
-dataloader = DataLoader(dataset, batch_size=batch_size)
+dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
 
 # --- Cuda Init ---
@@ -87,14 +88,13 @@ def seperate_image(image, layer, alpha):
     image_blend_normal = nn.functional.interpolate(image_blend_high, size=(pow(2, layer+2), pow(2,layer+2)), mode="bilinear")
     return image_blend_normal, image_blend_high
 
-layer = 1
 
 generator = Generator(init_size, latent_dim, img_size, features, channels, layer)
 discriminator = Discriminator(init_size, img_size, features, channels, layer)
 
 try:
-    generator.load_state_dict(torch.load(f"G-{layer}.pth"))
-    discriminator.load_state_dict(torch.load(f"D-{layer}.pth"))
+    generator.load_state_dict(torch.load(f"G-{layer}-a1.405.pth"))
+    discriminator.load_state_dict(torch.load(f"D-{layer}-a1.405.pth"))
 except:
     print("Models could not be loaded!")
 
@@ -108,7 +108,6 @@ optimizerD = optim.Adam(discriminator.parameters(), lr=0.001, betas=[0.0, 0.9])
 
 
 alpha = 1.0
-counting_alpha = 0.00
 
 
 for ep in range(n_epochs):
@@ -118,9 +117,11 @@ for ep in range(n_epochs):
     i = 0
     for batch in dataloader:
         counting_alpha += alpha_incease
-        if (counting_alpha >= alpha_end and layer <= 4):
+        if (counting_alpha >= alpha_end and layer <= 5):
             counting_alpha = 0.0
             alpha_incease *= alpha_dropdown
+            torch.save(generator.state_dict(), f"G-{layer}.pth")
+            torch.save(discriminator.state_dict(), f"D-{layer}.pth")
             layer += 1
             generator.add_layer(layer)
             discriminator.add_layer(layer)
@@ -148,7 +149,7 @@ for ep in range(n_epochs):
 
         
         # Train Discriminator on Fake Images
-        noise = torch.randn(batch_size, 100, 1, 1).to(device)
+        noise = torch.randn(batch_size, latent_dim, 1, 1).to(device)
         fake = generator(noise, alpha)
         fake_normal, fake_high = seperate_image(fake, layer, alpha)
         output_fake = discriminator(fake_normal, fake_high, alpha) 
@@ -159,7 +160,7 @@ for ep in range(n_epochs):
 
         # Train Generator with Discriminator
         generator.zero_grad()
-        noise = torch.randn(batch_size, 100, 1, 1).to(device)
+        noise = torch.randn(batch_size, latent_dim, 1, 1).to(device)
         output = generator(noise, alpha)
         output_normal, output_high = seperate_image(output, layer, alpha)
         output_fake = discriminator(output_normal, output_high, alpha) 
@@ -170,7 +171,10 @@ for ep in range(n_epochs):
 
 
         if i % 16 == 0:
-            print(f"Ep: {ep}, i: {i}/{len(dataloader)}, alpha: {alpha:.3f}, D(r): {mean(output_real):.3f}, D(f): {mean(output_fake):.3f}, D Loss: {(loss_real + loss_fake)/2:.3f}, G Loss:  {loss_generated:.3f}")
+            print(f"Ep: {ep}, i: {i}/{len(dataloader)}, alpha: {counting_alpha:.3f}, D(r): {mean(output_real):.3f}, D(f): {mean(output_fake):.3f}, D Loss: {(loss_real + loss_fake)/2:.3f}, G Loss:  {loss_generated:.3f}")
         if i % sample_interval == 0:
             save_image(output, f"image-{ep}.png", normalize=True)
+        if i % (sample_interval * 16) == 0:
+            torch.save(generator.state_dict(), f"G-{layer}-a{counting_alpha:.3f}.pth")
+            torch.save(discriminator.state_dict(), f"D-{layer}-a{counting_alpha:.3f}.pth")
 
