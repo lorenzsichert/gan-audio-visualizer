@@ -51,6 +51,13 @@ class GLU(nn.Module):
         nc = int(nc/2)
         return x[:, :nc] * torch.sigmoid(x[:, nc:])
 
+nfc_multi = {4:16, 8:8, 16:4, 32:2, 64:2, 128:1, 256:0.5, 512:0.25, 1024:0.125}
+nfc = {}
+noises = {}
+for k, v in nfc_multi.items():
+    nfc[k] = int(v*64)
+    noises[k] = torch.randn(1,1,k,k)
+
 
 class NoiseInjection(nn.Module):
     def __init__(self):
@@ -60,8 +67,8 @@ class NoiseInjection(nn.Module):
 
     def forward(self, feat, noise=None):
         if noise is None:
-            batch, _, height, width = feat.shape
-            noise = torch.randn(batch, 1, height, width).to(feat.device)
+            batch, _, _, width = feat.shape
+            noise = noises[width].to(feat.device)
 
         return feat + self.weight * noise
 
@@ -166,7 +173,7 @@ class FastGenerator(nn.Module):
         feat_256 = self.se_256( feat_16, self.feat_256(feat_128) )
 
         if self.im_size == 256:
-            return [self.to_big(feat_256), self.to_128(feat_128)]
+            return self.to_big(feat_256)
         
         feat_512 = self.se_512( feat_32, self.feat_512(feat_256) )
         if self.im_size == 512:

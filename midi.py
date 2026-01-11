@@ -2,7 +2,7 @@ import mido
 
 settings = {
     "Smoothing Factor": [0.5, 0, 1, 63],
-    "Noise Weight": [1.0, 0, 2, 60],
+    "Noise Weight": [1.0, 0, 10, 60],
     "Audio Weight": [0.1, 0, 2, 64],
     "Audio Randomization": [0.5, 0, 1, -1],
     "Lowpass Sensivity": [10, 0, 25, 54],
@@ -15,6 +15,8 @@ settings_updated = {
 }
 
 def open_midi_device(settings):
+    print("Available output ports:", mido.get_input_names())
+
     port_name = "DJControl Compact"
 
     try:

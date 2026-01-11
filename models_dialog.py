@@ -125,6 +125,7 @@ class ModelsDialog(QDialog):
         self.parent.image_size = new_size
         self.parent.image_channels = new_channels
         self.parent.layer = self.layer_box.value()
+        self.parent.model = "custom"
 
         # Call parent's reload function
         self.parent.reload_generator()
