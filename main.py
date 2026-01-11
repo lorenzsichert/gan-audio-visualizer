@@ -24,6 +24,7 @@ import numpy as np
 from numpy.random import randint, randn
 import torch
 
+from fastgan_models import FastGenerator
 import onnxruntime as ort
 
 from fullscreen import FullscreenImageWindow
@@ -33,6 +34,12 @@ from models_dialog import ModelsDialog
 from options_dialog import OptionsDialog
 from input_dialog import InputDialog
 from recording import get_sample, open_stream, push_latent
+
+
+from torchvision.utils import save_image
+
+torch.set_num_interop_threads(20)
+torch.set_num_threads(20)
 
 
 
@@ -77,11 +84,11 @@ class GANVisualizer(QMainWindow):
         # --- Audio and Model Setup ---
         self.blocksize = 512
         self.latent_dim = 256
-        self.image_size = 512
+        self.image_size = 256
         self.layer = 6
         self.image_channels = 3
-        self.model_path = "training/logos/G-6-a2.634.pth"
-        self.model = "custom"
+        self.model_path = "models/FastGAN/0.pth"
+        self.model = "fastgan"
 
         self.reload_generator()
 
@@ -222,6 +229,12 @@ class GANVisualizer(QMainWindow):
         if (self.model == "custom"):
             image = self.generator(noise, 1.0).detach().squeeze()
             image = image.numpy()
+        if (self.model == "fastgan"):
+            with torch.no_grad():
+                image = self.generator(noise)[0][0]
+            save_image(image, "test.png")
+            image = image.numpy()
+
 
         if (self.model == "onnx"):
             inputs = {
@@ -231,8 +244,8 @@ class GANVisualizer(QMainWindow):
             image = self.session.run(["image"], inputs)[0][0]
 
         image = np.clip(image, -1, 1)
-        image = (-image + 1) / 2.0
-        image = np.where(image < 0.25, 0, image)
+        image = (image + 1) / 2.0
+        #image = np.where(image < 0.25, 0, image)
         image_array = (image * 255).astype(np.uint8)
         if self.image_channels == 1:
             image_array = np.stack([image_array] * 3, axis=0)
@@ -314,6 +327,17 @@ class GANVisualizer(QMainWindow):
                 print(f"Available Providers: {self.session.get_provider_options()}")
                 print(f"✅ Reloaded ONNX BigGAN from {self.model_path}")
                 print(f"✅ Running on {self.session.get_providers()}.")
+            if (self.model == "fastgan"):
+                self.generator = FastGenerator(ngf=64,nz=256,nc=3, im_size=self.image_size)
+                state_dict = torch.load(self.model_path, map_location=device)
+                state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+                self.generator.load_state_dict(state_dict)
+                print(f"✅ Reloaded FastGAN generator from {self.model_path}")
+                #self.generator = torch.compile(self.generator)
+                self.generator.to(device)
+                #self.generator.eval()
+                print(f"✅ Running on {device}.")
+
         except Exception as e:
             print(f"❌ Failed to reload model: {e}")
 
