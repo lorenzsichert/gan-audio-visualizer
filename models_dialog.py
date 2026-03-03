@@ -7,12 +7,15 @@ from PyQt5.QtWidgets import (
 from pathlib import Path
 import re
 
+import stylesheets
+
 
 class ModelsDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
         self.setWindowTitle("Load Models")
         self.setMinimumSize(700,500)
+        self.setStyleSheet(stylesheets.stylesheet)
         self.parent = parent
         self.path = ""
 
@@ -125,7 +128,7 @@ class ModelsDialog(QDialog):
         self.parent.image_size = new_size
         self.parent.image_channels = new_channels
         self.parent.layer = self.layer_box.value()
-        self.parent.model = "custom"
+        self.parent.model = "fastgan"
 
         # Call parent's reload function
         self.parent.reload_generator()

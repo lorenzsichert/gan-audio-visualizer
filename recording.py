@@ -51,7 +51,7 @@ def get_sample(stream, smoothed_spectrum, blocksize, smoothing_factor):
         smoothing_factor * smoothed_spectrum +
         (1 - smoothing_factor) * fft_spectrum
     )
-    return smoothed_spectrum
+    return fft_spectrum
 
 def push_latent(z, direction, epsilon):
     z_pushed = z + (direction * epsilon)

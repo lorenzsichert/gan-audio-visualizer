@@ -3,8 +3,10 @@ import sys
 
 from PyQt5.QtCore import QSettings, QTimer, Qt
 from PyQt5.QtGui import (
+    QColor,
     QImage, 
-    QPainter, 
+    QPainter,
+    QPalette, 
     QPixmap, 
     QTransform
 )
@@ -24,18 +26,34 @@ import numpy as np
 from numpy.random import randint, randn
 import torch
 
-from fastgan_models import FastGenerator
+from models_upscale_sle import NoiseInjection
+from models_upscale_sle import UGenerator
 import onnxruntime as ort
 
 from fullscreen import FullscreenImageWindow
 import midi
+import stylesheets
 from training.models import Generator
 from models_dialog import ModelsDialog
 from options_dialog import OptionsDialog
 from input_dialog import InputDialog
 from recording import get_sample, open_stream, push_latent
 
+def fake_hue_shift(img, shift):
+    r, g, b = img[...,0], img[...,1], img[...,2]
+    return np.stack([
+        np.roll(r, shift, axis=1),
+        np.roll(g, shift, axis=0),
+        b
+    ], axis=-1)
 
+def channel_mix(img):
+    r, g, b = img[...,0], img[...,1], img[...,2]
+    return np.stack([
+        0.5*r + 0.5*b,
+        0.7*g + 0.3*r,
+       0.6*b + 0.4*g
+    ], axis=-1)
 
 def load_params(model, new_param):
     for p, new_p in zip(model.parameters(), new_param):
@@ -46,16 +64,24 @@ class GANVisualizer(QMainWindow):
     def __init__(self):
         super().__init__()
 
+        self.setStyleSheet(stylesheets.stylesheet)
         self.setWindowTitle("Audio GAN Visualizer (Qt)")
-        self.label_width, self.label_height = 900, 900
-        self.resize(self.label_width, self.label_height)
+        self.label_width, self.label_height = 1000, 1000
+        self.resize(self.label_width, self.label_height + 55)
 
         # --- Central Widget ---
         self.label = QLabel()
+        self.label.setStyleSheet(f"""
+            QLabel {{
+                background-color: {stylesheets.BG1}
+            }}
+        """)
         self.label.setAlignment(Qt.AlignCenter)
         central_widget = QWidget()
         layout = QVBoxLayout()
         layout.addWidget(self.label)
+        layout.setSpacing(6)
+        layout.setContentsMargins(10, 0, 10, 10)
         central_widget.setLayout(layout)
         self.setCentralWidget(central_widget)
 
@@ -77,7 +103,7 @@ class GANVisualizer(QMainWindow):
         midi_settings = self.settings.value("midi_settings", defaultValue=None)
         if midi_settings is not None:
             print("Found saved MIDI settings.")
-            for i in midi.settings:
+            for i in midi_settings:
                 midi.settings[i][0] = midi_settings[i][0]
 
         # --- Audio and Model Setup ---
@@ -86,9 +112,9 @@ class GANVisualizer(QMainWindow):
         self.image_size = 256
         self.layer = 6
         self.image_channels = 3
-        self.model_path = "onnx/fastgan.onnx"
-        #self.model_path = "./models/FastGAN/all_5000.pth"
-        self.model = "onnx"
+        self.model_path = "./models/Upscale/256,256,3/SLE-Psychart2000.pth"
+        #self.model_path = "./models/FastGAN/all_45000.pth"
+        self.model = "fastgan"
 
         self.session = None
 
@@ -112,12 +138,21 @@ class GANVisualizer(QMainWindow):
 
 
         self.smoothed_spectrum = np.zeros(int(self.blocksize / 2) + 1)
+        self.spectrum = np.zeros(int(self.blocksize / 2) + 1)
         self.lookup = np.arange(self.latent_dim)
         self.a = torch.randn(1, self.latent_dim)
-        self.b = torch.randn(1, self.latent_dim)
         self.direction = torch.randn(1, self.latent_dim)
+        self.high_direction = torch.randn(1, self.latent_dim).numpy()
         self.drift = 0
         self.step = 0
+
+        self.high_pass_max = 0.0
+        self.smoothed_high_pass_max = 0.0
+
+        self.dimensions = [8,16,32,64,128,256,512]
+        self.noises = {}
+        for i in self.dimensions:
+            self.noises[i] = torch.randn(1,1,i,i)
 
         # --- Onnx ---
 
@@ -183,28 +218,38 @@ class GANVisualizer(QMainWindow):
         self.fullscreen = FullscreenImageWindow(self.current_pixmap)
 
     def update_frame(self):
+        # --- Flux ---
+        r_spectrum = self.spectrum
+
         # --- Smooth Spectrum ---
+        self.smoothing_factor = midi.settings["Smoothing Factor"][0]
         self.step += 1
         if self.stream != None:
-            self.smoothed_spectrum = get_sample(
-                self.stream, self.smoothed_spectrum, self.blocksize, midi.settings["Smoothing Factor"][0]
+            self.spectrum = get_sample(
+                self.stream, self.smoothed_spectrum, self.blocksize, self.smoothing_factor
             )
         else:
-            self.smoothed_spectrum = np.zeros(int(self.blocksize / 2) + 1)
+            self.spectrum = np.zeros(int(self.blocksize / 2) + 1)
+
+
+        smoothing = midi.settings["Smoothing Factor"][0]
+        self.smoothed_spectrum = smoothing * self.smoothed_spectrum + (1 - smoothing) * self.spectrum
+
 
         # --- Randomize Latent Vector ---
         if midi.settings["Audio Randomization"][0] != 0 and self.step % int(30 / midi.settings["Audio Randomization"][0]) == 0:
             c = random.randint(0, self.latent_dim - 1)
             d = random.randint(0, self.latent_dim - 1)
             self.lookup[d], self.lookup[c] = self.lookup[c], self.lookup[d]
-            index = randint(0,self.latent_dim)
-            self.b[0][index] = randn()
 
 
         # --- Low Pass Drift: make big changes---
+        # --- Flux ---
+        flux = self.spectrum - r_spectrum 
+
         low_pass_drift = 0.0
-        for i in range(int(midi.settings["Lowpass Cutoff"][0])):
-            low_pass_drift = max(self.smoothed_spectrum[i],low_pass_drift)
+        for i in range(len(flux)):
+            low_pass_drift = max(flux[i],low_pass_drift)
 
         low_pass_drift = np.pow(low_pass_drift, midi.settings["Lowpass Power"][0])
         low_pass_drift *= midi.settings["Lowpass Sensivity"][0] * 0.0001
@@ -212,9 +257,24 @@ class GANVisualizer(QMainWindow):
         self.a = push_latent(self.a, self.direction, low_pass_drift)
 
 
+
+
         if self.drift >= 1.0:
             self.drift = 0 
             self.direction = torch.randn(1, self.latent_dim)
+
+
+
+        # High Pass Snare and Hi Hat Detection
+        self.high_pass_max = np.max(flux[int(midi.settings["Lowpass Cutoff"][0]):len(flux)])
+
+        self.high_pass_max = max(0, self.high_pass_max)
+        self.smoothed_high_pass_max = self.smoothed_high_pass_max * (self.smoothing_factor) + self.high_pass_max * (1 - self.smoothing_factor)
+
+
+
+
+
 
 
         spectrum = np.zeros(self.latent_dim)
@@ -223,14 +283,17 @@ class GANVisualizer(QMainWindow):
 
         noise = torch.zeros(1, self.latent_dim)
         for i in range(self.latent_dim):
-            noise[0][i] = self.a[0][i] * midi.settings["Noise Weight"][0] + spectrum[i] * midi.settings["Audio Weight"][0] * self.b[0][i]
+            noise[0][i] = self.a[0][i] * midi.settings["Noise Weight"][0] + spectrum[i] * midi.settings["Audio Weight"][0];
 
         noise = noise.view(1,self.latent_dim,1,1)
 
         if (self.model == "custom"):
-            image = self.generator(noise, 1.0).detach().squeeze()
+            image = self.generator(noise).detach().squeeze()
             image = image.numpy()
         if (self.model == "fastgan"):
+            for m in self.generator.modules():
+                if isinstance(m, NoiseInjection):
+                    m.set_noise(self.noises[m.size] * (midi.settings["Noise Base"][0] + self.smoothed_high_pass_max * midi.settings["Noise Injection"][0]))
             with torch.no_grad():
                 image = self.generator(noise)[0]
             image = image.numpy()
@@ -245,13 +308,19 @@ class GANVisualizer(QMainWindow):
 
         image = np.clip(image, -1, 1)
         image = (image + 1) / 2.0
+        
         #image = np.where(image < 0.25, 0, image)
+        image = np.clip(image, 0, 1)
         image_array = (image * 255).astype(np.uint8)
         if self.image_channels == 1:
             image_array = np.stack([image_array] * 3, axis=0)
         image_rgb = np.transpose(image_array, (1, 2, 0))
-        image_rgb = np.ascontiguousarray(image_rgb)
 
+
+        # 10 / 10
+        image_rgb = fake_hue_shift(image_rgb, low_pass_drift * midi.settings["Hue Shift"][0])
+
+        image_rgb = np.ascontiguousarray(image_rgb)
 
 
 
@@ -329,13 +398,13 @@ class GANVisualizer(QMainWindow):
                 print(f"✅ Running on {self.session.get_providers()}.")
 
             if (self.model == "fastgan"):
-                self.generator = FastGenerator(ngf=64,nz=256,nc=3, im_size=self.image_size)
+                self.generator = UGenerator(nz=self.latent_dim, ngf=16, nc=3, img_size=self.image_size, layer=self.image_size)
                 state_dict = torch.load(self.model_path, map_location=device)
-                load_params(self.generator, state_dict["g_ema"])
-                print(f"✅ Reloaded FastGAN generator from {self.model_path}")
+                self.generator.load_state_dict(state_dict)
+                print(f"✅ Reloaded Upscale Generator from {self.model_path}")
                 #self.generator = torch.compile(self.generator)
                 self.generator.to(device)
-                #self.generator.eval()
+                self.generator.eval()
                 print(f"✅ Running on {device}.")
 
         except Exception as e:

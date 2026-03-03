@@ -7,11 +7,14 @@ from PyQt5.QtCore import QTimer, Qt
 import pyqtgraph as pg
 import numpy as np
 import midi
+import stylesheets
 
 class OptionsDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
+        self.setStyleSheet(stylesheets.stylesheet)
         self.setWindowTitle("Options")
+        self.setMinimumWidth(800)
         self.parent = parent
         self.scale_factor = 10  # Use 10 to map 0.1 steps to integer slider values
 
@@ -28,13 +31,14 @@ class OptionsDialog(QDialog):
 
         # --- Spectrum ---
         self.plotWidget = pg.PlotWidget()
+        self.plotWidget.setBackground(stylesheets.BG2)
         self.plotWidget.setYRange(0, 10)
         layout.addRow(self.plotWidget)
 
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_spectrum)
-        self.timer.start(20)
+        self.timer.start(30)
 
         # --- Close button ---
         buttons = QDialogButtonBox(QDialogButtonBox.Close)

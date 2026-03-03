@@ -2,12 +2,15 @@ import mido
 
 settings = {
     "Smoothing Factor": [0.5, 0, 1, 63],
-    "Noise Weight": [1.0, 0, 10, 60],
-    "Audio Weight": [0.1, 0, 2, 64],
+    "Noise Weight": [1.0, 0, 10, 18],
+    "Audio Weight": [0.1, 0, 2, 17],
     "Audio Randomization": [0.5, 0, 1, -1],
-    "Lowpass Sensivity": [10, 0, 25, 54],
+    "Lowpass Sensivity": [10, 0, 20, 122],
     "Lowpass Power": [1.0, 1.0, 2.0, 57],
     "Lowpass Cutoff": [30, 0, 256, 59],
+    "Noise Injection": [1, 0, 5, 61],
+    "Noise Base": [0.7, 0, 20, -1],
+    "Hue Shift": [10, 0, 50, -1],
 }
 
 settings_updated = {
@@ -17,7 +20,7 @@ settings_updated = {
 def open_midi_device(settings):
     print("Available output ports:", mido.get_input_names())
 
-    port_name = "DJControl Compact"
+    port_name = "XDJ-RX3:XDJ-RX3 MIDI 1 28:0"
 
     try:
         midi = mido.open_input(port_name, callback=midi_callback(settings))
