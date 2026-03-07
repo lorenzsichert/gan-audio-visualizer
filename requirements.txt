@@ -4,8 +4,6 @@ sounddevice
 pyaudio
 pyqt5
 scipy
-onnx
-onnxscript
-onnxruntime
 mido
+python-rtmidi
 pyqtgraph

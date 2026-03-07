@@ -17,7 +17,7 @@ class InitLayer(nn.Module):
         noise = noise.view(noise.shape[0], -1, 1, 1)
         return self.init(noise)
 
-class NoiseInjection(nn.Module):
+class UNoiseInjection(nn.Module):
     def __init__(self, size):
         super().__init__()
 
@@ -46,7 +46,7 @@ def UpBlock(in_planes, out_planes,size):
     block = nn.Sequential(
         nn.Upsample(scale_factor=2, mode='nearest'),
         nn.utils.spectral_norm(nn.Conv2d(in_planes, out_planes*2, 3, 1, 1, bias=False)),
-        NoiseInjection(size),
+        UNoiseInjection(size),
         nn.BatchNorm2d(out_planes*2), GLU(),
     )
     return block
@@ -56,10 +56,10 @@ def UpBlockComp(in_planes, out_planes):
         nn.Upsample(scale_factor=2, mode='nearest'),
         spectral_norm(nn.Conv2d(in_planes, out_planes*2, 3, 1, 1, bias=False)),
         #convTranspose2d(in_planes, out_planes*2, 4, 2, 1, bias=False),
-        NoiseInjection(),
+        UNoiseInjection(),
         nn.BatchNorm2d(out_planes*2), GLU(),
         spectral_norm(nn.Conv2d(out_planes, out_planes*2, 3, 1, 1, bias=False)),
-        NoiseInjection(),
+        UUNoiseInjecn(),
         nn.BatchNorm2d(out_planes*2), GLU()
         )
     return block

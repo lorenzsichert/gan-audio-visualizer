@@ -3,10 +3,8 @@ import sys
 
 from PyQt5.QtCore import QSettings, QTimer, Qt
 from PyQt5.QtGui import (
-    QColor,
     QImage, 
     QPainter,
-    QPalette, 
     QPixmap, 
     QTransform
 )
@@ -23,21 +21,24 @@ from PyQt5.QtWidgets import (
 
 
 import numpy as np
-from numpy.random import randint, randn
 import torch
 
-from models_upscale_sle import NoiseInjection
+from models_upscale_sle import UNoiseInjection
 from models_upscale_sle import UGenerator
-import onnxruntime as ort
+from models import NoiseInjection
+from models import Generator
 
 from fullscreen import FullscreenImageWindow
 import midi
 import stylesheets
-from training.models import Generator
 from models_dialog import ModelsDialog
 from options_dialog import OptionsDialog
 from input_dialog import InputDialog
 from recording import get_sample, open_stream, push_latent
+
+
+#torch.set_num_interop_threads(16)
+#torch.set_num_threads(16)
 
 def fake_hue_shift(img, shift):
     r, g, b = img[...,0], img[...,1], img[...,2]
@@ -109,10 +110,10 @@ class GANVisualizer(QMainWindow):
         # --- Audio and Model Setup ---
         self.blocksize = 512
         self.latent_dim = 256
-        self.image_size = 256
+        self.image_size = 512
         self.layer = 6
         self.image_channels = 3
-        self.model_path = "./models/Upscale/256,256,3/SLE-Psychart2000.pth"
+        self.model_path = "./models/Upscale/512,512,3/SLE-AlbumCovers-420.pth"
         #self.model_path = "./models/FastGAN/all_45000.pth"
         self.model = "fastgan"
 
@@ -287,12 +288,9 @@ class GANVisualizer(QMainWindow):
 
         noise = noise.view(1,self.latent_dim,1,1)
 
-        if (self.model == "custom"):
-            image = self.generator(noise).detach().squeeze()
-            image = image.numpy()
-        if (self.model == "fastgan"):
+        if (self.model == "custom" or self.model == "fastgan"):
             for m in self.generator.modules():
-                if isinstance(m, NoiseInjection):
+                if isinstance(m, UNoiseInjection):
                     m.set_noise(self.noises[m.size] * (midi.settings["Noise Base"][0] + self.smoothed_high_pass_max * midi.settings["Noise Injection"][0]))
             with torch.no_grad():
                 image = self.generator(noise)[0]
@@ -378,24 +376,26 @@ class GANVisualizer(QMainWindow):
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
             if (self.model == "custom"):
-                self.generator = Generator(4, self.latent_dim, self.image_size, 64,3,self.layer)
+                self.generator = Generator(nz=self.latent_dim, ngf=16, nc=3, img_size=self.image_size, layer=self.image_size)
                 state_dict = torch.load(self.model_path, map_location=device)
                 self.generator.load_state_dict(state_dict)
-                print(f"✅ Reloaded generator from {self.model_path}")
+                print(f"✅ Reloaded Upscale Generator from {self.model_path}")
                 #self.generator = torch.compile(self.generator)
                 self.generator.to(device)
                 self.generator.eval()
+                self.generator.compile()
                 print(f"✅ Running on {device}.")
 
             if (self.model == "onnx"):
                 # Onnx Optimization Options
-                sessionOptions = ort.SessionOptions()
-                sessionOptions.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-                self.session = ort.InferenceSession(self.model_path,sessionOptions)
-
-                print(f"Available Providers: {self.session.get_provider_options()}")
-                print(f"✅ Reloaded ONNX BigGAN from {self.model_path}")
-                print(f"✅ Running on {self.session.get_providers()}.")
+                
+                #sessionOptions = ort.SessionOptions()
+                #sessionOptions.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+                #self.session = ort.InferenceSession(self.model_path,sessionOptions)
+                #print(f"Available Providers: {self.session.get_provider_options()}")
+                #print(f"✅ Reloaded ONNX BigGAN from {self.model_path}")
+                #print(f"✅ Running on {self.session.get_providers()}.")
+                print(f"❌ No Onnx Support")
 
             if (self.model == "fastgan"):
                 self.generator = UGenerator(nz=self.latent_dim, ngf=16, nc=3, img_size=self.image_size, layer=self.image_size)
@@ -405,6 +405,7 @@ class GANVisualizer(QMainWindow):
                 #self.generator = torch.compile(self.generator)
                 self.generator.to(device)
                 self.generator.eval()
+                #self.generator.compile()
                 print(f"✅ Running on {device}.")
 
         except Exception as e:
