@@ -166,14 +166,18 @@ class FastGenerator(nn.Module):
         feat_16  = self.feat_16(feat_8)
         feat_32  = self.feat_32(feat_16)
 
-        feat_64  = self.se_64( feat_4, self.feat_64(feat_32) )
+        #feat_64  = self.se_64( feat_4, self.feat_64(feat_32) )
+        feat_64  = self.feat_64(feat_32)
 
         feat_128 = self.se_128( feat_8, self.feat_128(feat_64) )
+        #feat_128 = self.feat_128(feat_64)
 
-        feat_256 = self.se_256( feat_16, self.feat_256(feat_128) )
+        
+        #feat_256 = self.se_256( feat_16, self.feat_256(feat_128) )
+        #feat_256 = self.feat_256(feat_128)
 
         if self.im_size == 256:
-            return self.to_big(feat_256)
+            return self.to_128(feat_128)
         
         feat_512 = self.se_512( feat_32, self.feat_512(feat_256) )
         if self.im_size == 512:

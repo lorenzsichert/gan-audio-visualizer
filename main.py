@@ -23,6 +23,7 @@ from PyQt5.QtWidgets import (
 import numpy as np
 import torch
 
+from midi_dialog import MidiDialog
 from models_upscale_sle import UNoiseInjection
 from models_upscale_sle import UGenerator
 from models import NoiseInjection
@@ -101,11 +102,27 @@ class GANVisualizer(QMainWindow):
         else:
             self.device = None
 
-        midi_settings = self.settings.value("midi_settings", defaultValue=None)
-        if midi_settings is not None:
-            print("Found saved MIDI settings.")
-            for i in midi_settings:
-                midi.settings[i][0] = midi_settings[i][0]
+        midi_device_settings = self.settings.value("midi_device", defaultValue=None)
+        if midi_device_settings is not None:
+            print("Found saved MIDI device.")
+            self.midi_device = midi_device_settings
+        else:
+            self.midi_device = None
+
+        if self.midi_device is None:
+            midi_settings = self.settings.value("midi_settings", defaultValue=None)
+            if midi_settings is not None:
+                print("Found saved MIDI settings.")
+                for i in midi_settings:
+                    midi.settings[i][0] = midi_settings[i][0]
+        else:
+            midi_settings = self.settings.value(f"midi_settings.{self.midi_device}", defaultValue=None)
+            if midi_settings is not None:
+                print("Found saved MIDI settings with device.")
+                for i in midi_settings:
+                    midi.settings[i][0] = midi_settings[i][0]
+                    midi.settings[i][3] = midi_settings[i][3]
+
 
         # --- Audio and Model Setup ---
         self.blocksize = 512
@@ -113,8 +130,9 @@ class GANVisualizer(QMainWindow):
         self.image_size = 512
         self.layer = 6
         self.image_channels = 3
-        self.model_path = "./models/Upscale/512,512,3/SLE-AlbumCovers-420.pth"
+        self.model_path = "./models/Upscale/512,512,3/SLE-AlbumCovers-460.pth"
         #self.model_path = "./models/FastGAN/all_45000.pth"
+        self.models = {"custom", "fastgan"}
         self.model = "fastgan"
 
         self.session = None
@@ -167,8 +185,11 @@ class GANVisualizer(QMainWindow):
         self.timer.start(20)
 
         # --- Open Midi Device --- 
-        self.midi = midi.open_midi_device(midi.settings)
-
+        self.midi_worker = midi.Worker(self)
+        if self.midi_device is not None:
+            self.open_midi_device()
+        else:
+            self.midi = None
 
         # --- Menu ---
         self.init_menu()
@@ -178,6 +199,9 @@ class GANVisualizer(QMainWindow):
 
     def open_stream(self):
         self.stream = open_stream(self.device, self.blocksize)
+
+    def open_midi_device(self):
+        self.midi = self.midi_worker.open_midi_device(self.midi_device, midi.settings)
 
 
     def init_menu(self):
@@ -196,6 +220,10 @@ class GANVisualizer(QMainWindow):
         input_action.triggered.connect(self.open_input_dialog)
         options_menu.addAction(input_action)
 
+        input_action = QAction("MIDI Settings", self)
+        input_action.triggered.connect(self.open_midi_dialog)
+        options_menu.addAction(input_action)
+
         fullscreen_action = QAction("Open Fullscreen Window", self)
         fullscreen_action.triggered.connect(self.open_fullscreen_window)
         options_menu.addAction(fullscreen_action)
@@ -212,6 +240,11 @@ class GANVisualizer(QMainWindow):
 
     def open_input_dialog(self):
         dialog = InputDialog(self)
+        dialog.setModal(False)
+        dialog.show()
+
+    def open_midi_dialog(self):
+        dialog = MidiDialog(self, self.midi_worker)
         dialog.setModal(False)
         dialog.show()
 
@@ -387,14 +420,6 @@ class GANVisualizer(QMainWindow):
                 print(f"✅ Running on {device}.")
 
             if (self.model == "onnx"):
-                # Onnx Optimization Options
-                
-                #sessionOptions = ort.SessionOptions()
-                #sessionOptions.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-                #self.session = ort.InferenceSession(self.model_path,sessionOptions)
-                #print(f"Available Providers: {self.session.get_provider_options()}")
-                #print(f"✅ Reloaded ONNX BigGAN from {self.model_path}")
-                #print(f"✅ Running on {self.session.get_providers()}.")
                 print(f"❌ No Onnx Support")
 
             if (self.model == "fastgan"):
@@ -405,8 +430,10 @@ class GANVisualizer(QMainWindow):
                 #self.generator = torch.compile(self.generator)
                 self.generator.to(device)
                 self.generator.eval()
-                #self.generator.compile()
                 print(f"✅ Running on {device}.")
+
+            if (self.model == "conditional"):
+                print("Coming Soon")
 
         except Exception as e:
             print(f"❌ Failed to reload model: {e}")
@@ -424,7 +451,11 @@ class GANVisualizer(QMainWindow):
             super().keyPressEvent(event)
 
     def closeEvent(self, event):
-        self.settings.setValue("midi_settings", midi.settings)
+        if self.midi_device is None:
+            self.settings.setValue("midi_settings", midi.settings)
+        else:
+            self.settings.setValue(f"midi_settings.{self.midi_device}", midi.settings)
+            self.settings.setValue("midi_device", self.midi_device)
         self.timer.stop()
         if self.stream != None:
             self.stream.stop()

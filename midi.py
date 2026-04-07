@@ -1,3 +1,4 @@
+from PyQt5.QtCore import QObject, pyqtSignal
 import mido
 
 settings = {
@@ -17,26 +18,32 @@ settings_updated = {
     "update": False
 }
 
-def open_midi_device(settings):
-    print("Available output ports:", mido.get_input_names())
 
-    port_name = "XDJ-RX3:XDJ-RX3 MIDI 1 28:0"
+class Worker(QObject):
+    finished = pyqtSignal(int)
 
-    try:
-        midi = mido.open_input(port_name, callback=midi_callback(settings))
-    except Exception as e:
-        print(f"Error opening {port_name}: {e}")
-        midi = None
 
-    return midi
-    
-def midi_callback(settings):
-    def callback(msg):
-        if msg.type == "control_change":
-            settings_updated["update"] = True
-            print(msg)
-            for i in settings:
-                if msg.control == settings[i][3]:
-                    settings[i][0] = msg.value / (128.0 / settings[i][2]) + settings[i][1]
+    def open_midi_device(self, midi_device, settings):
+        port_name = midi_device
 
-    return callback
+        try:
+            midi = mido.open_input(port_name, callback=self.midi_callback(settings))
+            print(f"Succesfully opened MIDI Device: {port_name}")
+        except Exception as e:
+            print(f"Error opening {port_name}: {e}")
+            midi = None
+
+        return midi
+        
+    def midi_callback(self, settings):
+        def callback(msg):
+            if msg.type == "control_change":
+                settings_updated["update"] = True
+                for i in settings:
+                    if settings[i][3] == -2:
+                        settings[i][3] = msg.control
+                        self.finished.emit(msg.control)
+                    if msg.control == settings[i][3]:
+                        settings[i][0] = msg.value / (128.0 / settings[i][2]) + settings[i][1]
+
+        return callback

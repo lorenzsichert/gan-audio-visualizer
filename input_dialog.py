@@ -22,6 +22,9 @@ class InputDialog(QDialog):
             self.label = QLabel("No device selected. Choose an Input Source:")
         else:
             self.selected_device = self.parent.device
+            index = self.dropdown.findData(self.selected_device)
+            if index != -1:
+                self.dropdown.setCurrentIndex(index)
             self.update_text()
 
 

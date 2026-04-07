@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import (
-    QDialog, QFormLayout, 
+    QComboBox, QDialog, QFormLayout, 
     QFileDialog, QLineEdit, QPushButton, QSpinBox,
     QTabWidget, QVBoxLayout, QWidget,
 )
@@ -18,6 +18,7 @@ class ModelsDialog(QDialog):
         self.setStyleSheet(stylesheets.stylesheet)
         self.parent = parent
         self.path = ""
+        self.model = self.parent.model
 
 
         layout = QVBoxLayout()
@@ -37,6 +38,17 @@ class ModelsDialog(QDialog):
         browse_btn.clicked.connect(lambda: self.browse_custom_model("models/","PyTorch Files (*.pth)"))
         tab_custom_models.addRow("Model Path:", self.model_path_edit)
         tab_custom_models.addRow("", browse_btn)
+
+        # --- Model selection ---
+        self.model_selection = QComboBox()
+        for i in parent.models:
+            self.model_selection.addItem(i)
+
+        index = self.model_selection.findText(self.parent.model)
+        if index != -1:
+            self.model_selection.setCurrentIndex(index)
+        self.model_selection.currentIndexChanged.connect(self.model_selection_changed)
+        tab_custom_models.addRow("Select Model:", self.model_selection)
 
         # --- Image size selector ---
         self.size_box = QSpinBox()
@@ -117,6 +129,9 @@ class ModelsDialog(QDialog):
         if path:
             self.onnx_path_edit.setText(path)
 
+    def model_selection_changed(self):
+        self.model = self.model_selection.currentText()
+
     def reload_generator(self):
         """Reload the generator in the main window with selected params."""
         new_path = self.model_path_edit.text()
@@ -128,7 +143,7 @@ class ModelsDialog(QDialog):
         self.parent.image_size = new_size
         self.parent.image_channels = new_channels
         self.parent.layer = self.layer_box.value()
-        self.parent.model = "custom"
+        self.parent.model = self.model
 
         # Call parent's reload function
         self.parent.reload_generator()
