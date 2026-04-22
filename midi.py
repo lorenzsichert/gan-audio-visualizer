@@ -4,7 +4,7 @@ import mido
 settings = {
     "Smoothing Factor": [0.5, 0, 1, 63],
     "Noise Weight": [1.0, 0, 10, 18],
-    "Audio Weight": [0.1, 0, 2, 17],
+    "Audio Weight": [0.1, 0, 0.5, 17],
     "Audio Randomization": [0.5, 0, 1, -1],
     "Lowpass Sensivity": [10, 0, 20, 122],
     "Lowpass Power": [1.0, 1.0, 2.0, 57],
@@ -12,6 +12,9 @@ settings = {
     "Noise Injection": [1, 0, 5, 61],
     "Noise Base": [0.7, 0, 20, -1],
     "Hue Shift": [10, 0, 50, -1],
+    "Red": [0, 0, 1, -1],
+    "Green": [0, 0, 1, -1],
+    "Blue": [0, 0, 1, -1],
 }
 
 settings_updated = {

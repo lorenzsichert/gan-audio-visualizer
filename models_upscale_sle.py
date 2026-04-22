@@ -59,7 +59,7 @@ def UpBlockComp(in_planes, out_planes):
         UNoiseInjection(),
         nn.BatchNorm2d(out_planes*2), GLU(),
         spectral_norm(nn.Conv2d(out_planes, out_planes*2, 3, 1, 1, bias=False)),
-        UUNoiseInjecn(),
+        UNoiseInjection(),
         nn.BatchNorm2d(out_planes*2), GLU()
         )
     return block

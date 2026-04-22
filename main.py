@@ -1,5 +1,6 @@
 import random
 import sys
+import time
 
 from PyQt5.QtCore import QSettings, QTimer, Qt
 from PyQt5.QtGui import (
@@ -23,11 +24,13 @@ from PyQt5.QtWidgets import (
 import numpy as np
 import torch
 
+from conditional_models import CGenerator
 from midi_dialog import MidiDialog
 from models_upscale_sle import UNoiseInjection
 from models_upscale_sle import UGenerator
-from models import NoiseInjection
-from models import Generator
+from conditional_models import NoiseInjection
+from models_test_relu import Generator
+#from models import Generator
 
 from fullscreen import FullscreenImageWindow
 import midi
@@ -120,8 +123,11 @@ class GANVisualizer(QMainWindow):
             if midi_settings is not None:
                 print("Found saved MIDI settings with device.")
                 for i in midi_settings:
-                    midi.settings[i][0] = midi_settings[i][0]
-                    midi.settings[i][3] = midi_settings[i][3]
+                    try:
+                        midi.settings[i][0] = midi_settings[i][0]
+                        midi.settings[i][3] = midi_settings[i][3]
+                    except Exception as e:
+                        print(f"Failed loading: {e}")
 
 
         # --- Audio and Model Setup ---
@@ -130,10 +136,10 @@ class GANVisualizer(QMainWindow):
         self.image_size = 512
         self.layer = 6
         self.image_channels = 3
-        self.model_path = "./models/Upscale/512,512,3/SLE-AlbumCovers-460.pth"
+        self.model_path = "../sle_gan_progressive/ckpt/GE-512-Epoch-16.pth"
         #self.model_path = "./models/FastGAN/all_45000.pth"
-        self.models = {"custom", "fastgan"}
-        self.model = "fastgan"
+        self.models = {"custom", "fastgan", "conditional", "norelu"}
+        self.model = "conditional"
 
         self.session = None
 
@@ -252,6 +258,7 @@ class GANVisualizer(QMainWindow):
         self.fullscreen = FullscreenImageWindow(self.current_pixmap)
 
     def update_frame(self):
+        a = time.perf_counter()
         # --- Flux ---
         r_spectrum = self.spectrum
 
@@ -321,12 +328,20 @@ class GANVisualizer(QMainWindow):
 
         noise = noise.view(1,self.latent_dim,1,1)
 
-        if (self.model == "custom" or self.model == "fastgan"):
+        if (self.model == "custom" or self.model == "fastgan" or self.model == "conditional"):
             for m in self.generator.modules():
-                if isinstance(m, UNoiseInjection):
+                if isinstance(m, NoiseInjection):
                     m.set_noise(self.noises[m.size] * (midi.settings["Noise Base"][0] + self.smoothed_high_pass_max * midi.settings["Noise Injection"][0]))
             with torch.no_grad():
-                image = self.generator(noise)[0]
+                if self.model == "conditional":
+                    red = midi.settings["Red"][0]
+                    green = midi.settings["Green"][0]
+                    blue = midi.settings["Blue"][0]
+                    #y = torch.tensor([red, green, blue])
+                    y = torch.tensor([red])
+                    image = self.generator(noise,y)[0]
+                else:
+                    image = self.generator(noise)[0]
             image = image.numpy()
 
 
@@ -390,6 +405,10 @@ class GANVisualizer(QMainWindow):
 
         self.update_scaled_pixmap()
 
+        b = time.perf_counter()
+        t = b-a
+        print(f"{1/t:.1f}fps")
+
     def update_scaled_pixmap(self):
         """Rescale the pixmap to match window size while keeping aspect ratio."""
         if self.fullscreen and self.fullscreen.isVisible() and self.current_pixmap:
@@ -427,12 +446,20 @@ class GANVisualizer(QMainWindow):
                 state_dict = torch.load(self.model_path, map_location=device)
                 self.generator.load_state_dict(state_dict)
                 print(f"✅ Reloaded Upscale Generator from {self.model_path}")
-                #self.generator = torch.compile(self.generator)
+                self.generator = torch.compile(self.generator)
                 self.generator.to(device)
                 self.generator.eval()
                 print(f"✅ Running on {device}.")
 
             if (self.model == "conditional"):
+                self.generator = Generator(nz=self.latent_dim, ngf=32, nc=3, img_size=self.image_size, num_classes=1, skip_layer=3)
+                state_dict = torch.load(self.model_path, map_location=device)
+                self.generator.load_state_dict(state_dict)
+                print(f"✅ Reloaded Upscale Conditional Generator from {self.model_path}")
+                self.generator = torch.compile(self.generator)
+                self.generator.to(device)
+                self.generator.eval()
+                print(f"✅ Running on {device}.")
                 print("Coming Soon")
 
         except Exception as e:
