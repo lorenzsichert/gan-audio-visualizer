@@ -76,7 +76,6 @@ class MidiDialog(QDialog):
         worker.finished.connect(self.set_midi_control)
 
     def remap_midi_control(self, name, value):
-        print(f"Set {name} to {value}!")
         self.buttons[name][1].setText("Move MIDI control to set")
         self.buttons[name][2] = True
         midi.settings[name][3] = -2
@@ -91,6 +90,7 @@ class MidiDialog(QDialog):
         for i in self.buttons:
             if self.buttons[i][2] == True:
                 self.buttons[i][3] = value
+                midi.settings[i][3] = value
                 self.buttons[i][2] = False
                 self.buttons[i][1].setText(f"Press to Remap MIDI: {midi.settings[i][3]}")
 

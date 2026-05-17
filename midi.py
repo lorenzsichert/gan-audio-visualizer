@@ -1,21 +1,23 @@
 from PyQt5.QtCore import QObject, pyqtSignal
 import mido
 
+# [Value, Min, Max, MIDI id, 0: knob - 1: spin wheel]
 settings = {
-    "Smoothing Factor": [0.5, 0, 1, 63],
-    "Noise Weight": [1.0, 0, 10, 18],
-    "Audio Weight": [0.1, 0, 0.5, 17],
-    "Audio Randomization": [0.5, 0, 1, -1],
-    "Lowpass Sensivity": [10, 0, 20, 122],
-    "Lowpass Power": [1.0, 1.0, 2.0, 57],
-    "Lowpass Cutoff": [30, 0, 256, 59],
-    "Noise Injection": [1, 0, 5, 61],
-    "Noise Base": [0.7, 0, 20, -1],
-    "Hue Shift": [10, 0, 50, -1],
-    "Red": [0, 0, 1, -1],
-    "Green": [0, 0, 1, -1],
-    "Blue": [0, 0, 1, -1],
+    "Smoothing Factor": [0.16, 0, 1, 63, 0],
+    "Noise Weight": [1.48, 0, 10, 18, 0],
+    "Audio Weight": [0.1, 0, 2.0, 17, 0],
+    "Audio Randomization": [0.0, 0, 1, -1, 1],
+    "Lowpass Sensivity": [0.47, 0, 5.0, 122, 0],
+    "Lowpass Power": [1.39, 1.0, 2.0, 57, 0],
+    "Lowpass Cutoff": [128, 0, 256, 59, 0],
+    "Noise Injection": [0, 0, 5, 61, 0],
+    "Noise Base": [1.0, 0, 20, -1, 1],
+    "Hue Shift": [0.09, 0, 1.0, -1, 1],
+    "Y": [0.07, 0, 1, -1, 1],
+    "X": [0.17, -0.5, 1, -1, 1],
+    "Cutoff": [0, 0, 100, -1, 0],
 }
+
 
 settings_updated = {
     "update": False
@@ -44,9 +46,29 @@ class Worker(QObject):
                 settings_updated["update"] = True
                 for i in settings:
                     if settings[i][3] == -2:
-                        settings[i][3] = msg.control
+                        if msg.value == 127 or msg.value == 126 or msg.value == 1 or msg.value == 2:
+                            settings[i][3] = msg.control
+                            settings[i][4] = 1
+                        else:
+                            settings[i][3] = msg.control
+                            settings[i][4] = 0
                         self.finished.emit(msg.control)
-                    if msg.control == settings[i][3]:
-                        settings[i][0] = msg.value / (128.0 / settings[i][2]) + settings[i][1]
+                    elif msg.control == settings[i][3]:
+                        if settings[i][4] == 1:
+                            step = settings[i][2] / 256.0
+                            if msg.value == 127 or msg.value == 126:
+                                settings[i][0] -= step
+                            else:
+                                settings[i][0] += step
+                            if settings[i][0] > settings[i][2]:
+                                settings[i][0] = settings[i][2]
+                            if settings[i][0] < settings[i][1]:
+                                settings[i][0] = settings[i][1]
+                        else:
+                            settings[i][0] = msg.value / (128.0 / settings[i][2]) + settings[i][1]
 
         return callback
+
+
+
+

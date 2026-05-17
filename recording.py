@@ -39,7 +39,7 @@ def open_stream(device, blocksize):
         device = None
     return stream
 
-def get_sample(stream, smoothed_spectrum, blocksize, smoothing_factor):
+def get_sample(stream, smoothed_spectrum, blocksize):
     # Audio Stream Input
     recording, _ = stream.read(blocksize)
 
@@ -47,10 +47,6 @@ def get_sample(stream, smoothed_spectrum, blocksize, smoothing_factor):
     window = np.hanning(len(samples)) * samples
     fft_spectrum = np.abs(rfft(window))
 
-    smoothed_spectrum = (
-        smoothing_factor * smoothed_spectrum +
-        (1 - smoothing_factor) * fft_spectrum
-    )
     return fft_spectrum
 
 def push_latent(z, direction, epsilon):

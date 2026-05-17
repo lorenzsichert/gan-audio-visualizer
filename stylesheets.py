@@ -131,6 +131,25 @@ stylesheet = f"""
     }}
 
 
+    QCheckBox {{
+        color: {TEXT_COLOR};
+        spacing: 8px;
+    }}
+    QCheckBox::indicator {{
+        width: 18px;
+        height: 18px;
+        border: 2px solid {BG5};
+        border-radius: 4px;
+        background-color: {BG3};
+    }}
+    QCheckBox::indicator:hover {{
+        border: 2px solid {BG7};
+    }}
+    QCheckBox::indicator:checked {{
+        background-color: {ACCENT_COLOR};
+        border: 2px solid #FFFFFF;
+    }}
+
     QLineEdit {{
         background-color: {BG3};
         color: {TEXT_COLOR};

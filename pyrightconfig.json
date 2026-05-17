@@ -1,3 +1,5 @@
 {
-  "typeCheckingMode": "off"
+  "typeCheckingMode": "off",
+  "include": ["."],
+  "extraPaths": ["."],
 }

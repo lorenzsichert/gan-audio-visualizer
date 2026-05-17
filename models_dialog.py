@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import (
-    QComboBox, QDialog, QFormLayout, 
+    QCheckBox, QComboBox, QDialog, QFormLayout, 
     QFileDialog, QLineEdit, QPushButton, QSpinBox,
     QTabWidget, QVBoxLayout, QWidget,
 )
@@ -67,6 +67,11 @@ class ModelsDialog(QDialog):
         self.layer_box.setRange(1, 1000)
         self.layer_box.setValue(self.parent.layer)
         tab_custom_models.addRow("Layers:", self.layer_box)
+
+        # --- Compile model checkbox ---
+        self.compile_checkbox = QCheckBox("Compile Model (torch.compile)")
+        self.compile_checkbox.setChecked(self.parent.compile_model)
+        tab_custom_models.addRow(self.compile_checkbox)
 
         # --- Reload button ---
         reload_btn = QPushButton("Reload Generator")
@@ -144,6 +149,7 @@ class ModelsDialog(QDialog):
         self.parent.image_channels = new_channels
         self.parent.layer = self.layer_box.value()
         self.parent.model = self.model
+        self.parent.compile_model = self.compile_checkbox.isChecked()
 
         # Call parent's reload function
         self.parent.reload_generator()
@@ -153,6 +159,7 @@ class ModelsDialog(QDialog):
         self.onnx_path = self.onnx_path_edit.text()
         self.parent.model_path = self.onnx_path
         self.parent.model = "onnx"
+        self.parent.compile_model = self.compile_checkbox.isChecked()
         self.parent.reload_generator()
 
     def update_image_size(self, value):

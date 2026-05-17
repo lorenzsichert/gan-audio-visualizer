@@ -38,7 +38,7 @@ class OptionsDialog(QDialog):
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_spectrum)
-        self.timer.start(30)
+        self.timer.start(16)
 
         # --- Close button ---
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
@@ -56,7 +56,6 @@ class OptionsDialog(QDialog):
             for i in midi.settings:
                 self.controls[i]["spinbox"].setValue(midi.settings[i][0])
             midi.settings_updated["update"] = False
-            print("Yes")
 
 
 

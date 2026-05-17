@@ -1,3 +1,4 @@
+import math
 import random
 import sys
 import time
@@ -24,25 +25,23 @@ from PyQt5.QtWidgets import (
 import numpy as np
 import torch
 
-from conditional_models import CGenerator
-from midi_dialog import MidiDialog
-from models_upscale_sle import UNoiseInjection
-from models_upscale_sle import UGenerator
-from conditional_models import NoiseInjection
-from models_test_relu import Generator
-#from models import Generator
+from models.conditional.sle_conditional import Generator
+from models.upscale.sle import UGenerator
+from models.conditional.sle_conditional import NoiseInjection
 
-from fullscreen import FullscreenImageWindow
 import midi
 import stylesheets
+
+from fullscreen import FullscreenImageWindow
+from midi_dialog import MidiDialog
 from models_dialog import ModelsDialog
 from options_dialog import OptionsDialog
 from input_dialog import InputDialog
 from recording import get_sample, open_stream, push_latent
 
 
-#torch.set_num_interop_threads(16)
-#torch.set_num_threads(16)
+torch.set_num_interop_threads(16)
+torch.set_num_threads(16)
 
 def fake_hue_shift(img, shift):
     r, g, b = img[...,0], img[...,1], img[...,2]
@@ -52,17 +51,6 @@ def fake_hue_shift(img, shift):
         b
     ], axis=-1)
 
-def channel_mix(img):
-    r, g, b = img[...,0], img[...,1], img[...,2]
-    return np.stack([
-        0.5*r + 0.5*b,
-        0.7*g + 0.3*r,
-       0.6*b + 0.4*g
-    ], axis=-1)
-
-def load_params(model, new_param):
-    for p, new_p in zip(model.parameters(), new_param):
-        p.data.copy_(new_p)
 
 
 class GANVisualizer(QMainWindow):
@@ -126,6 +114,7 @@ class GANVisualizer(QMainWindow):
                     try:
                         midi.settings[i][0] = midi_settings[i][0]
                         midi.settings[i][3] = midi_settings[i][3]
+                        midi.settings[i][4] = midi_settings[i][4]
                     except Exception as e:
                         print(f"Failed loading: {e}")
 
@@ -136,12 +125,15 @@ class GANVisualizer(QMainWindow):
         self.image_size = 512
         self.layer = 6
         self.image_channels = 3
-        self.model_path = "../sle_gan_progressive/ckpt/GE-512-Epoch-16.pth"
+        self.model_path = "./models/conditional/512,512,3/Psychart-G-512-Epoch-1276.pth"
         #self.model_path = "./models/FastGAN/all_45000.pth"
-        self.models = {"custom", "fastgan", "conditional", "norelu"}
-        self.model = "conditional"
+        self.models = {"sle", "sle_conditional", "onnx"}
+        self.model = "sle_conditional"
 
         self.session = None
+        self.torch_device = None
+
+        self.compile_model = False
 
         self.reload_generator()
 
@@ -168,6 +160,7 @@ class GANVisualizer(QMainWindow):
         self.a = torch.randn(1, self.latent_dim)
         self.direction = torch.randn(1, self.latent_dim)
         self.high_direction = torch.randn(1, self.latent_dim).numpy()
+        self.fixed_noise = torch.zeros(1, self.latent_dim)
         self.drift = 0
         self.step = 0
 
@@ -188,7 +181,11 @@ class GANVisualizer(QMainWindow):
         # --- Timer for updates ---
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_frame)
-        self.timer.start(20)
+        self.timer.start(17)
+
+        # --- Timer for FPS ---
+
+        self.fps_timer = time.perf_counter()
 
         # --- Open Midi Device --- 
         self.midi_worker = midi.Worker(self)
@@ -218,7 +215,7 @@ class GANVisualizer(QMainWindow):
         adjust_action.triggered.connect(self.open_options_dialog)
         options_menu.addAction(adjust_action)
 
-        load_action = QAction("Load Models", self)
+        load_action = QAction("Model Settings", self)
         load_action.triggered.connect(self.open_models_dialog)
         options_menu.addAction(load_action)
 
@@ -258,22 +255,28 @@ class GANVisualizer(QMainWindow):
         self.fullscreen = FullscreenImageWindow(self.current_pixmap)
 
     def update_frame(self):
-        a = time.perf_counter()
+        b = time.perf_counter()
+        delta_t = b-self.fps_timer
+        print(f"{1/delta_t:.1f}fps")
+
+        self.fps_timer = b
+
         # --- Flux ---
         r_spectrum = self.spectrum
 
         # --- Smooth Spectrum ---
-        self.smoothing_factor = midi.settings["Smoothing Factor"][0]
         self.step += 1
         if self.stream != None:
             self.spectrum = get_sample(
-                self.stream, self.smoothed_spectrum, self.blocksize, self.smoothing_factor
+                self.stream, self.smoothed_spectrum, self.blocksize
             )
         else:
             self.spectrum = np.zeros(int(self.blocksize / 2) + 1)
 
 
-        smoothing = midi.settings["Smoothing Factor"][0]
+        self.smoothing_factor = midi.settings["Smoothing Factor"][0]
+        smoothing = 1.0 - np.exp(-delta_t*10 / max(self.smoothing_factor, 1e-6))
+        print(smoothing)
         self.smoothed_spectrum = smoothing * self.smoothed_spectrum + (1 - smoothing) * self.spectrum
 
 
@@ -286,16 +289,18 @@ class GANVisualizer(QMainWindow):
 
         # --- Low Pass Drift: make big changes---
         # --- Flux ---
-        flux = self.spectrum - r_spectrum 
+        low_pass_normal = self.smoothed_spectrum.max()
+        low_pass_normal = max(0, low_pass_normal)
+        flux = (self.spectrum - r_spectrum) / max(delta_t, 1e-6)
 
-        low_pass_drift = 0.0
-        for i in range(len(flux)):
-            low_pass_drift = max(flux[i],low_pass_drift)
 
-        low_pass_drift = np.pow(low_pass_drift, midi.settings["Lowpass Power"][0])
-        low_pass_drift *= midi.settings["Lowpass Sensivity"][0] * 0.0001
-        self.drift += low_pass_drift
-        self.a = push_latent(self.a, self.direction, low_pass_drift)
+        low_pass_drift = np.max(flux)
+        low_pass_drift = max(low_pass_drift, 0)
+
+        low_pass = np.pow(low_pass_drift, midi.settings["Lowpass Power"][0]) * 0.0001
+        low_pass_drift = low_pass * midi.settings["Lowpass Sensivity"][0]
+        self.drift += low_pass_drift * delta_t
+        self.a = push_latent(self.a, self.direction, low_pass_drift * delta_t)
 
 
 
@@ -310,7 +315,7 @@ class GANVisualizer(QMainWindow):
         self.high_pass_max = np.max(flux[int(midi.settings["Lowpass Cutoff"][0]):len(flux)])
 
         self.high_pass_max = max(0, self.high_pass_max)
-        self.smoothed_high_pass_max = self.smoothed_high_pass_max * (self.smoothing_factor) + self.high_pass_max * (1 - self.smoothing_factor)
+        self.smoothed_high_pass_max = self.smoothed_high_pass_max * (smoothing) + self.high_pass_max * (1 - smoothing)
 
 
 
@@ -318,27 +323,32 @@ class GANVisualizer(QMainWindow):
 
 
 
-        spectrum = np.zeros(self.latent_dim)
+        spectrum = torch.zeros(1, self.latent_dim)
         for i in range(self.latent_dim):
-            spectrum[i] = self.smoothed_spectrum[self.lookup[i]]
+            spectrum[0][i] = self.smoothed_spectrum[self.lookup[i]] * (1 + 0)
 
         noise = torch.zeros(1, self.latent_dim)
+        cutoff = int(midi.settings["Cutoff"][0])
+        audio_noise = spectrum * midi.settings["Audio Weight"][0]
+        audio_noise = torch.cat([self.fixed_noise[0,:cutoff],audio_noise[0,cutoff:]]).view(1,-1)
         for i in range(self.latent_dim):
-            noise[0][i] = self.a[0][i] * midi.settings["Noise Weight"][0] + spectrum[i] * midi.settings["Audio Weight"][0];
+            noise[0][i] = self.a[0][i] * midi.settings["Noise Weight"][0] + audio_noise[0][i]
+
 
         noise = noise.view(1,self.latent_dim,1,1)
 
-        if (self.model == "custom" or self.model == "fastgan" or self.model == "conditional"):
+
+
+        if (self.model == "sle" or self.model == "sle_conditional"):
+            noise.to(self.torch_device)
             for m in self.generator.modules():
                 if isinstance(m, NoiseInjection):
                     m.set_noise(self.noises[m.size] * (midi.settings["Noise Base"][0] + self.smoothed_high_pass_max * midi.settings["Noise Injection"][0]))
             with torch.no_grad():
-                if self.model == "conditional":
-                    red = midi.settings["Red"][0]
-                    green = midi.settings["Green"][0]
-                    blue = midi.settings["Blue"][0]
-                    #y = torch.tensor([red, green, blue])
-                    y = torch.tensor([red])
+                if self.model == "sle_conditional":
+                    red = midi.settings["X"][0] + midi.settings["Y"][0] * low_pass_normal * 0.02
+                    y = torch.tensor([red], dtype=torch.float32)
+                    y.to(self.torch_device)
                     image = self.generator(noise,y)[0]
                 else:
                     image = self.generator(noise)[0]
@@ -363,8 +373,8 @@ class GANVisualizer(QMainWindow):
         image_rgb = np.transpose(image_array, (1, 2, 0))
 
 
-        # 10 / 10
-        image_rgb = fake_hue_shift(image_rgb, low_pass_drift * midi.settings["Hue Shift"][0])
+        # Hue Shift and Shake
+        image_rgb = fake_hue_shift(image_rgb, low_pass * midi.settings["Hue Shift"][0] * 10)
 
         image_rgb = np.ascontiguousarray(image_rgb)
 
@@ -405,9 +415,6 @@ class GANVisualizer(QMainWindow):
 
         self.update_scaled_pixmap()
 
-        b = time.perf_counter()
-        t = b-a
-        print(f"{1/t:.1f}fps")
 
     def update_scaled_pixmap(self):
         """Rescale the pixmap to match window size while keeping aspect ratio."""
@@ -425,41 +432,32 @@ class GANVisualizer(QMainWindow):
         """Recreate the generator and load weights."""
         try:
             # Recreate the generator (ensures architecture matches)
-            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-            if (self.model == "custom"):
-                self.generator = Generator(nz=self.latent_dim, ngf=16, nc=3, img_size=self.image_size, layer=self.image_size)
-                state_dict = torch.load(self.model_path, map_location=device)
-                self.generator.load_state_dict(state_dict)
-                print(f"✅ Reloaded Upscale Generator from {self.model_path}")
-                #self.generator = torch.compile(self.generator)
-                self.generator.to(device)
-                self.generator.eval()
-                self.generator.compile()
-                print(f"✅ Running on {device}.")
+            self.torch_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
             if (self.model == "onnx"):
                 print(f"❌ No Onnx Support")
 
-            if (self.model == "fastgan"):
+            if (self.model == "sle"):
                 self.generator = UGenerator(nz=self.latent_dim, ngf=16, nc=3, img_size=self.image_size, layer=self.image_size)
-                state_dict = torch.load(self.model_path, map_location=device)
+                state_dict = torch.load(self.model_path, map_location=self.torch_device)
                 self.generator.load_state_dict(state_dict)
-                print(f"✅ Reloaded Upscale Generator from {self.model_path}")
-                self.generator = torch.compile(self.generator)
-                self.generator.to(device)
+                print(f"✅ Reloaded Upscale Generator from {self.model_path}") 
                 self.generator.eval()
-                print(f"✅ Running on {device}.")
+                if self.compile_model:
+                    self.generator = torch.compile(self.generator)
+                self.generator.to(self.torch_device)
+                print(f"✅ Running on {self.torch_device}.")
 
-            if (self.model == "conditional"):
-                self.generator = Generator(nz=self.latent_dim, ngf=32, nc=3, img_size=self.image_size, num_classes=1, skip_layer=3)
-                state_dict = torch.load(self.model_path, map_location=device)
+            if (self.model == "sle_conditional"):
+                self.generator = Generator(nz=self.latent_dim, ngf=8, nc=3, img_size=self.image_size, num_classes=1, skip_layer=3)
+                state_dict = torch.load(self.model_path, map_location=self.torch_device)
                 self.generator.load_state_dict(state_dict)
                 print(f"✅ Reloaded Upscale Conditional Generator from {self.model_path}")
-                self.generator = torch.compile(self.generator)
-                self.generator.to(device)
                 self.generator.eval()
-                print(f"✅ Running on {device}.")
+                if self.compile_model:
+                    self.generator = torch.compile(self.generator)
+                self.generator.to(self.torch_device)
+                print(f"✅ Running on {self.torch_device}.")
                 print("Coming Soon")
 
         except Exception as e:
