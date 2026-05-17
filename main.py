@@ -276,7 +276,6 @@ class GANVisualizer(QMainWindow):
 
         self.smoothing_factor = midi.settings["Smoothing Factor"][0]
         smoothing = 1.0 - np.exp(-delta_t*10 / max(self.smoothing_factor, 1e-6))
-        print(smoothing)
         self.smoothed_spectrum = smoothing * self.smoothed_spectrum + (1 - smoothing) * self.spectrum
 
 

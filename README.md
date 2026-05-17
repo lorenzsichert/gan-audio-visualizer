@@ -5,21 +5,21 @@ A real-time **audio-driven GAN visualizer** built with PyQt5 and PyTorch. Captur
 
 ## Requirements
 
-- **Python 3.10** (recommended)
+- **Python 3.14** (recommended)
 
 ## Installation
 
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/lorenzsichert/audio-gan-visualizer.git
-cd audio-gan-visualizer
+git clone https://github.com/lorenzsichert/gan-audio-visualizer.git
+cd gan-audio-visualizer
 ```
 
 ### 2. Create a virtual environment (recommended)
 
 ```bash
-python3.10 -m venv venv
+python3.14 -m venv venv
 source venv/bin/activate   # Linux/macOS
 # venv\Scripts\activate    # Windows
 ```
