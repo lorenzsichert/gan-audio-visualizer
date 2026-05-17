@@ -1,5 +1,0 @@
-{
-  "typeCheckingMode": "off",
-  "include": ["."],
-  "extraPaths": ["."],
-}
