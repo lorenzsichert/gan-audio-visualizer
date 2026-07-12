@@ -24,6 +24,9 @@ from PyQt5.QtWidgets import (
 
 import numpy as np
 import torch
+from PIL import Image
+
+from ncnn_vulkan import upscale_image
 
 from models.conditional.sle_conditional import Generator
 from models.upscale.sle import UGenerator
@@ -45,6 +48,7 @@ torch.set_num_threads(16)
 
 def fake_hue_shift(img, shift):
     r, g, b = img[...,0], img[...,1], img[...,2]
+    shift = int(shift)
     return np.stack([
         np.roll(r, shift, axis=1),
         np.roll(g, shift, axis=0),
@@ -296,7 +300,7 @@ class GANVisualizer(QMainWindow):
         low_pass_drift = np.max(flux)
         low_pass_drift = max(low_pass_drift, 0)
 
-        low_pass = np.pow(low_pass_drift, midi.settings["Lowpass Power"][0]) * 0.0001
+        low_pass = np.power(low_pass_drift, midi.settings["Lowpass Power"][0]) * 0.0001
         low_pass_drift = low_pass * midi.settings["Lowpass Sensivity"][0]
         self.drift += low_pass_drift * delta_t
         self.a = push_latent(self.a, self.direction, low_pass_drift * delta_t)
@@ -348,7 +352,7 @@ class GANVisualizer(QMainWindow):
                     red = midi.settings["X"][0] + midi.settings["Y"][0] * low_pass_normal * 0.02
                     y = torch.tensor([red], dtype=torch.float32)
                     y.to(self.torch_device)
-                    image = self.generator(noise,y)[0]
+                    image = self.generator(noise,y,True)[0]
                 else:
                     image = self.generator(noise)[0]
             image = image.numpy()
@@ -377,6 +381,14 @@ class GANVisualizer(QMainWindow):
 
         image_rgb = np.ascontiguousarray(image_rgb)
 
+
+
+
+        pil_img = Image.fromarray(image_rgb, mode="RGB")
+        #pil_img = pil_img.resize((128,128))
+        
+        pil_img = upscale_image(pil_img, scale=4)
+        image_rgb = np.asarray(pil_img, dtype=np.uint8)
 
 
         qimage = QImage(

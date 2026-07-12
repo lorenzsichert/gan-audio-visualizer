@@ -153,7 +153,7 @@ class Generator(nn.Module):
 
 
 
-    def forward(self, input, y):
+    def forward(self, input, y, small = False):
         #embedding = self.embedding(y).unsqueeze(-1).unsqueeze(-1)
         #y = y.view(input.size(0), self.num_classes, 1, 1)
         #input = torch.cat([input,y], dim=1)
@@ -165,6 +165,9 @@ class Generator(nn.Module):
         features = [feature]
         f = 0
         for i in self.nfc:
+            if small:
+                if i == 128:
+                    break
             if i < self.img_size:
                 feature = self.features[f](feature, input[f+1], class_emb)
                 if i >= 2 * pow(2, self.skip_layer + 1):
@@ -172,12 +175,16 @@ class Generator(nn.Module):
                 features.append(feature)
                 f += 1
 
-        big = self.to_big(feature)
 
+
+        if small:
+            return self.to_128(features[5])
         if self.training:
             big_128 = self.to_128(features[5])
+            big = self.to_big(feature)
             return big, big_128
         else:
+            big = self.to_big(feature)
             return big
 
 
